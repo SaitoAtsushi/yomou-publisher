@@ -92,6 +92,7 @@
 (define (download path)
   (receive (status head body)
       (http-get "ncode.syosetu.com" path)
+    (unless (string=? "200" status) (error "http error"))
     body))
 
 (define novel-body (sxpath "//div[@id='novel_view']/node()"))
