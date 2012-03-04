@@ -289,6 +289,7 @@
 "ul {
  list-style-type: none;
  padding: 0;
+ margin: 0;
 }
 p {
  margin: 0.3em 0 0.3em 0;
