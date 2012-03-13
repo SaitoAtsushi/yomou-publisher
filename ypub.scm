@@ -41,41 +41,47 @@
     (+ (ash (- year 1980) 25) (ash month 21) (ash day 16)
        (ash hour 11) (ash minute 5) (quotient second 2))))
 
-(define (pk0304 port name body compressed timestamp checksum)
+(define (pk0304 port name body compressed timestamp checksum flag)
   (rlet1 lfh-position (port-tell port)
     (pack "VvvvVVVVvva*"
-      (list #x04034b50 20  0 8 timestamp checksum (string-size compressed)
-            (string-size body) (string-size name) 0 name)
+      (list #x04034b50 20  0 (if flag 8 0) timestamp checksum
+            (string-size compressed) (string-size body) (string-size name)
+            0 name)
       :output port)))
 
-(define (pk0102 port name body compressed timestamp position checksum)
+(define (pk0102 port name body compressed timestamp position checksum flag)
   (pack "VvvvvVVVVvvvvvVVa*"
-    (list #x02014b50 20 20 0 8 timestamp checksum (string-size compressed)
-          (string-size body) (string-size name) 0 0 0 0 0 position name)
+    (list #x02014b50 20 20 0 (if flag 8 0) timestamp checksum
+          (string-size compressed) (string-size body) (string-size name)
+          0 0 0 0 0 position name)
         :output port))
 
 (define (pk0506 port num eoc cd)
   (pack "VvvvvVVv" (list #x06054b50 0 0 num num (- eoc cd) cd 0) :output port))
 
 (define (zip-encode output-filename lst)
-  (receive (names bodies) (unzip2 lst)
+  (receive (names bodies flags) (unzip3 lst)
     (let ((timestamp (current-time/dos-format))
           (compressed-bodies
-           (map (cut deflate-string <> :window-bits -15 :compression-level 9)
-                bodies))
+           (map
+            (^[body flag]
+              (if flag
+                  (deflate-string body :window-bits -15 :compression-level 9)
+                  body))
+                bodies flags))
           (checksums (map crc32 bodies)))
       (call-with-output-file output-filename
         (^p
          (let ((lfh-pos ;; local file headers
-                (map (^[n b c checksum]
-                       (rlet1 x (pk0304 p n b c timestamp checksum)
+                (map (^[n b c checksum f]
+                       (rlet1 x (pk0304 p n b c timestamp checksum f)
                          (display c p)))
-                     names bodies compressed-bodies checksums))
+                     names bodies compressed-bodies checksums flags))
                (cd-position (port-tell p))) ;;central directory structure
            (for-each
-            (^[n b c pos checksum]
-              (pk0102 p n b c timestamp pos checksum))
-            names bodies compressed-bodies lfh-pos checksums)
+            (^[n b c pos checksum f]
+              (pk0102 p n b c timestamp pos checksum f))
+            names bodies compressed-bodies lfh-pos checksums flags)
            (let1 eoc-position (port-tell p) ;;end of central directory record
              (pk0506 p (length lst) eoc-position cd-position)
              )))))))
@@ -321,13 +327,13 @@ body {
                                lst)))
     (zip-encode
      (fsencode (sanitize #`"[,(novel-author topic)] ,(novel-title topic).epub"))
-    `(("mimetype" ,(mimetype))
-      ("OPS/title.xhtml" ,(title-page topic))
-      ("OPS/topic.xhtml" ,(topic-page topic))
-      ("OPS/style.css" ,(style))
-      ("META-INF/container.xml" ,(container))
-      ("OPS/content.opf" ,(opt topic target))
-      ("OPS/toc.ncx" ,(ncx topic target))
+    `(("mimetype" ,(mimetype) #f)
+      ("OPS/title.xhtml" ,(title-page topic) #t)
+      ("OPS/topic.xhtml" ,(topic-page topic) #t)
+      ("OPS/style.css" ,(style) #t)
+      ("META-INF/container.xml" ,(container) #t)
+      ("OPS/content.opf" ,(opt topic target) #t)
+      ("OPS/toc.ncx" ,(ncx topic target) #t)
       ,@(map (^x
               (let ((pathname (car x))
                     (title (cadr x))
@@ -356,7 +362,8 @@ body {
                        #f
                        '(omit-xml-declaration . #t)
                        '(indent . #f)
-                       )
-                      ))))))
+                       ))))
+                 #t
+                 )))
              bodies)
       ))))
