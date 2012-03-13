@@ -21,6 +21,7 @@
 (use rfc.zlib)
 (use srfi-19)
 (use srfi-60)
+(use srfi-13)
 
 (require "htmlprag") ;; http://www.neilvandyke.org/htmlprag/
 
@@ -324,7 +325,7 @@ body {
 
 (define (main args)
   (when (> 2 (length args)) (usage (car args)))
-  (let* ((target (cadr args))
+  (let* ((target (string-downcase (cadr args)))
          (topic (html->sxml (download #`"/,|target|/")))
          (lst (novel-list topic))
          (bodies (threaded-map (^x (let1 a (html->sxml (download x))
