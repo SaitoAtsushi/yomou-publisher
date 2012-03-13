@@ -228,6 +228,9 @@
            (item (@ (id "TableOfContents")
                     (href "topic.xhtml")
                     (media-type "application/xhtml+xml")))
+           (item (@ (id "style")
+                    (href "style.css")
+                    (media-type "text/css")))
            ,@manifest)
           (spine (@ (toc "toc"))
             (itemref (@ (idref "title")))
@@ -249,7 +252,7 @@
        (match-lambda
         (('a ('@ ('href (? string? (= #/^\/([^\/]+)\/(.+)\/$/ m)))) t)
          `(navPoint (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
-                       (playOrder ,(format #f "~4,,,'0@a" (m 2))))
+                       (playOrder ,(format #f "~a" (m 2))))
             (navLabel (text ,t))
             (content (@ (src ,(format #f "~4,,,'0@a.xhtml" (m 2))))))))
        (query topic))))
@@ -270,7 +273,7 @@
              (meta (@ (name "dtb:totalPageCount") (content "0")))
              (meta (@ (name "dtb:maxPageNumber") (content "0"))))
             (docTitle
-             ,(novel-title topic))
+             (text ,(novel-title topic)))
             (navMap
              ,@nav)
             )))))))
