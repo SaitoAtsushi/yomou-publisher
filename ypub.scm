@@ -318,7 +318,12 @@ body {
 
 (define (mimetype) "application/epub+zip")
 
+(define (usage cmd)
+  (print "usage: " cmd " N-CODE")
+  (exit))
+
 (define (main args)
+  (when (> 2 (length args)) (usage (car args)))
   (let* ((target (cadr args))
          (topic (html->sxml (download #`"/,|target|/")))
          (lst (novel-list topic))
