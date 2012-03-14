@@ -1,6 +1,6 @@
 #!/usr/bin/env gosh
 ;;; -*- mode:gauche; coding: utf-8 -*-
-;;; Copyright (c) 2012 SAITO Atsushi
+;;; Author: SAITO Atsushi
 
 (define-constant *fsencode* 'Shift_JIS) ;; file-system encoding
 
@@ -13,7 +13,6 @@
 (use srfi-1)
 (use gauche.collection)
 (use util.queue)
-(use control.thread-pool)
 (use gauche.parameter)
 (use srfi-27)
 (use sxml.tools)
@@ -24,6 +23,19 @@
 (use srfi-13)
 
 (require "htmlprag") ;; http://www.neilvandyke.org/htmlprag/
+
+(cond-expand
+ [gauche.sys.threads
+  (define *max-thread* (make-parameter 18))
+  (use control.thread-pool)
+  (define (parallel-map proc lst)
+    (let1 pool (make-thread-pool (*max-thread*))
+      (for-each (^x (add-job! pool (cut proc x) #t)) lst)
+      (terminate-all! pool)
+      (map! (cut ~ <> 'result) (queue->list (thread-pool-results pool)))
+      ))]
+ [else
+  (define parallel-map map)])
 
 (define (fsencode str)
   (ces-convert str (gauche-character-encoding) *fsencode*))
@@ -86,15 +98,6 @@
            (let1 eoc-position (port-tell p) ;;end of central directory record
              (pk0506 p (length lst) eoc-position cd-position)
              )))))))
-
-(define *max-thread* (make-parameter 18))
-
-(define (threaded-map proc lst)
-  (let1 pool (make-thread-pool (*max-thread*))
-    (for-each (^x (add-job! pool (cut proc x) #t)) lst)
-    (terminate-all! pool)
-    (map! (cut ~ <> 'result) (queue->list (thread-pool-results pool)))
-    ))
 
 (define (download path)
   (receive (status head body)
@@ -328,7 +331,7 @@ body {
   (let* ((target (string-downcase (cadr args)))
          (topic (html->sxml (download #`"/,|target|/")))
          (lst (novel-list topic))
-         (bodies (threaded-map (^x (let1 a (html->sxml (download x))
+         (bodies (parallel-map (^x (let1 a (html->sxml (download x))
                                      (list x (novel-subtitle a) (novel-body a))))
                                lst)))
     (zip-encode
