@@ -326,10 +326,8 @@ body {
   (print "usage: " cmd " N-CODE")
   (exit))
 
-(define (main args)
-  (when (> 2 (length args)) (usage (car args)))
-  (let* ((target (string-downcase (cadr args)))
-         (topic (html->sxml (download #`"/,|target|/")))
+(define (epubize n-code)
+  (let* ((topic (html->sxml (download #`"/,|n-code|/")))
          (lst (novel-list topic))
          (bodies (parallel-map (^x (let1 a (html->sxml (download x))
                                      (list x (novel-subtitle a) (novel-body a))))
@@ -341,8 +339,8 @@ body {
       ("OPS/topic.xhtml" ,(topic-page topic) #t)
       ("OPS/style.css" ,(style) #t)
       ("META-INF/container.xml" ,(container) #t)
-      ("OPS/content.opf" ,(opt topic target) #t)
-      ("OPS/toc.ncx" ,(ncx topic target) #t)
+      ("OPS/content.opf" ,(opt topic n-code) #t)
+      ("OPS/toc.ncx" ,(ncx topic n-code) #t)
       ,@(map (^x
               (let ((pathname (car x))
                     (title (cadr x))
@@ -376,3 +374,7 @@ body {
                  )))
              bodies)
       ))))
+
+(define (main args)
+  (when (> 2 (length args)) (usage (car args)))
+  (for-each (compose epubize string-downcase) (cdr args)))
