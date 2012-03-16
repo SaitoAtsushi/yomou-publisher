@@ -121,6 +121,8 @@
   (let1 query (sxpath "//div[@class='novel_title']/text()")
     (^x (apply string-append (query x)))))
 
+(define novel-series (if-car-sxpath "//div[@class='series']/a/text()"))
+
 (define (topic-grouping x)
   (cond ((null?  x) '())
         ((eqv? 'h2 (caar x))
@@ -227,7 +229,11 @@
            (dc:language "ja")
            (dc:identifier (@ (id "BookId")) ,id)
            (dc:subject "General Fiction")
-           (dc:description ,(novel-ex topic)))
+           (dc:description ,(novel-ex topic))
+           ,@(if-let1 series-title (novel-series topic)
+               `((meta (@ (name "calibre:series") (content ,series-title)))
+                 (meta (@ (name "calibre:series_index") (content "0"))))
+               '()))
           (manifest
            (item (@ (id "toc")
                     (href "toc.ncx")
