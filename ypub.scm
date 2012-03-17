@@ -113,7 +113,11 @@
     (^x (apply string-append (query x)))))
 
 (define novel-author
-  (if-car-sxpath "//div[@class='novel_writername']/a/text()"))
+  (let ((query (if-car-sxpath "//div[@class='novel_writername']/a/text()"))
+        (query2 (if-car-sxpath "//div[@class='novel_writername']/text()")))
+    (^x (if-let1 author (query x)
+          author
+          ((#/\uff1a(.+)/ (query2 x)) 1)))))
 
 (define novel-list (sxpath "//div[@class='novel_sublist']//a[starts-with(@href,'/')]/@href/text()"))
 
