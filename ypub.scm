@@ -301,12 +301,14 @@
 
 (define (line->para a)
   (reverse!
-   (fold2 (lambda(elt b para)
-            (if (and (pair? elt) (equal? (car elt) 'br))
-                (values (cons (cons 'p (reverse! para)) b) '())
-                (values b (cons elt para))))
-          '() '()
-          a)))
+   (receive (x y)
+       (fold2 (lambda(elt b para)
+                (if (and (pair? elt) (equal? (car elt) 'br))
+                    (values (cons (cons 'p (reverse! para)) b) '())
+                    (values b (cons elt para))))
+              '() '()
+              a)
+     (if (null? y) x (cons (cons 'p (reverse! y)) x)))))
 
 (define (style)
 "ul {
