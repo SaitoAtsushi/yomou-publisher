@@ -14,6 +14,7 @@
 (use gauche.collection)
 (use util.queue)
 (use gauche.parameter)
+(use gauche.parseopt)
 (use srfi-27)
 (use sxml.tools)
 (use binary.pack)
@@ -23,6 +24,8 @@
 (use srfi-13)
 
 (require "htmlprag") ;; http://www.neilvandyke.org/htmlprag/
+
+(define option-vertical (make-parameter #f))
 
 (cond-expand
  [gauche.sys.threads
@@ -162,7 +165,10 @@
         `(*TOP*
           (html (@ (xmlns "http://www.w3.org/1999/xhtml")
                    (xml:lang "ja"))
-                (head (title ,(novel-title topic)))
+                (head (title ,(novel-title topic))
+                      (link (@ (rel "stylesheet")
+                               (type "text/css")
+                               (href "style.css"))))
                 (body
                  (h1 ,(novel-title topic))
                  (h2 "作者")
@@ -264,7 +270,10 @@
                     (href "style.css")
                     (media-type "text/css")))
            ,@manifest)
-          (spine (@ (toc "toc"))
+          (spine (@ (toc "toc")
+                    ,@(if (option-vertical)
+                          '((page-progression-direction "rtl"))
+                          '()))
            (itemref (@ (idref "nav")))
            (itemref (@ (idref "title")))
            ,@spine)
@@ -319,7 +328,13 @@
             )))))))
 
 (define (style)
-"ol {
+  #`"
+,(if (option-vertical) \"html {
+ -epub-writing-mode: vertical-rl;
+ direction: ltr;
+ unicode-bidi:bidi-override;
+}\" \"\")
+ol {
  list-style-type: none;
  padding: 0;
  margin: 0;
@@ -396,5 +411,8 @@ body {
       ))))
 
 (define (main args)
+  (let-args (cdr args)
+      ((vertical "v|vertical" => (cut option-vertical #t))
+       . rest)
   (when (> 2 (length args)) (usage (car args)))
-  (for-each (compose epubize string-downcase) (cdr args)))
+  (for-each (compose epubize string-downcase) rest)))
