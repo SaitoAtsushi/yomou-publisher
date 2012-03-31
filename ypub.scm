@@ -141,7 +141,7 @@
                     (list 'li (list 'span (cadar x)) (cons 'ol a))
                     (loop b))))
                 ((eqv? 'li (caar x))
-                 (cons (car x) (loop b)))))))
+                 x)))))
 
 (define topic-item
   (let1 query (sxpath "//div[@class='novel_sublist']//node()[@class='chapter' or starts-with(@href,'/')]")
