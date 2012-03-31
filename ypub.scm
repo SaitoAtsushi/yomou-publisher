@@ -319,7 +319,7 @@
             )))))))
 
 (define (style)
-"ul {
+"ol {
  list-style-type: none;
  padding: 0;
  margin: 0;
