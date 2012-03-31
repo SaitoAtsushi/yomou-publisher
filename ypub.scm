@@ -250,6 +250,9 @@
                  (meta (@ (name "calibre:series_index") (content "0"))))
                '()))
           (manifest
+           (item (@ (id "toc")
+                    (href "toc.ncx")
+                    (media-type "application/x-dtbncx+xml")))
            (item (@ (id "nav")
                     (href "nav.xhtml")
                     (media-type "application/xhtml+xml")
@@ -261,7 +264,7 @@
                     (href "style.css")
                     (media-type "text/css")))
            ,@manifest)
-          (spine
+          (spine (@ (toc "toc"))
            (itemref (@ (idref "nav")))
            (itemref (@ (idref "title")))
            ,@spine)
@@ -281,6 +284,39 @@
               '() '()
               a)
      (if (null? y) x (cons (cons 'p (reverse! y)) x)))))
+
+(define (ncx topic id)
+  (define nav
+    (let1 query (sxpath "//div[@class='novel_sublist']//a[starts-with(@href,'/')]")
+      (map
+       (match-lambda
+        (('a ('@ ('href (? string? (= #/^\/([^\/]+)\/(.+)\/$/ m)))) t)
+         `(navPoint (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
+                       (playOrder ,(format #f "~a" (m 2))))
+            (navLabel (text ,t))
+            (content (@ (src ,(format #f "~4,,,'0@a.xhtml" (m 2))))))))
+       (query topic))))
+  
+  (with-output-to-string
+    (^[]
+      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
+      (display "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\" \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">")
+      (write-tree
+       (srl:parameterizable
+        `(*TOP*
+          (ncx (@ (xmlns "http://www.daisy.org/z3986/2005/ncx/")
+                  (xml:lang "en")
+                  (version "2005-1"))
+            (head
+             (meta (@ (name "dtb:uid") (content ,id)))
+             (meta (@ (name "dtb:depth") (content "1")))
+             (meta (@ (name "dtb:totalPageCount") (content "0")))
+             (meta (@ (name "dtb:maxPageNumber") (content "0"))))
+            (docTitle
+             (text ,(novel-title topic)))
+            (navMap
+             ,@nav)
+            )))))))
 
 (define (style)
 "ul {
@@ -324,6 +360,7 @@ body {
       ("OPS/style.css" ,(style) #t)
       ("META-INF/container.xml" ,(container) #t)
       ("OPS/content.opf" ,(opf topic n-code) #t)
+      ("OPS/toc.ncx" ,(ncx topic n-code) #t)
       ,@(map (^x
               (let ((pathname (car x))
                     (title (cadr x))
