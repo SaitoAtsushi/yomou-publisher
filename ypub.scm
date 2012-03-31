@@ -103,7 +103,7 @@
   (receive (status head body)
       (http-get "ncode.syosetu.com" path)
     (unless (string=? "200" status) (error "http error"))
-    body))
+    (regexp-replace-all #/<rb>(.+?)<\/rb>/ body (cut <> 1))))
 
 (define novel-body (sxpath "//div[@id='novel_view']/node()"))
 (define novel-subtitle (if-car-sxpath "//div[@class='novel_subtitle']/text()"))
@@ -128,13 +128,17 @@
 (define novel-series (if-car-sxpath "//div[@class='series']/a/text()"))
 
 (define (topic-grouping x)
-  (cond ((null?  x) '())
-        ((eqv? 'h2 (caar x))
-         (cons (car x) (topic-grouping (cdr x))))
-        ((eqv? 'li (caar x))
-         (receive (a b)
-             (span (^x (eqv? (car x) 'li)) x)
-           (cons (cons 'ul a) (topic-grouping b))))))
+  (cons 'ol
+        (let loop ((x x))
+          (cond ((null?  x) '())
+                ((eqv? 'h2 (caar x))
+                 (receive (a b)
+                     (span (^x (eqv? (car x) 'li)) (cdr x))
+                   (cons
+                    (list 'li (list 'span (cadar x)) (cons 'ol a))
+                    (loop b))))
+                ((eqv? 'li (caar x))
+                 (cons (car x) (loop b)))))))
 
 (define topic-item
   (let1 query (sxpath "//div[@class='novel_sublist']//node()[@class='chapter' or starts-with(@href,'/')]")
@@ -152,7 +156,7 @@
   (with-output-to-string
     (^[]
       (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-      (display "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n")
+      (display "<!DOCTYPE html>\n")
       (write-tree
        (srl:parameterizable
         `(*TOP*
@@ -173,27 +177,32 @@
 (define (topic-page topic)
   (with-output-to-string
     (^[]
-     (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-     (display "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n")
-     (write-tree
-      (srl:parameterizable
-       `(*TOP*
-         (html (@ (xmlns "http://www.w3.org/1999/xhtml")
-                  (xml:lang "ja"))
-               (head (title "目次")
-                     (link (@ (rel "stylesheet")
-                              (type "text/css")
-                              (href "style.css"))))
-               (body
-                (h1 "目次")
-                ,@(topic-item topic)
-                )))
-       #f
-       '(omit-xml-declaration . #t)
-       '(indent . #f)
-       )))))
+      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
+      (display "<!DOCTYPE html>\n")
+      (write-tree
+       (srl:parameterizable
+        `(*TOP*
+          (@@ (*NAMESPACES*
+               (epub "http://www.idpf.org/2007/ops")))
+          (html (@ (xmlns "http://www.w3.org/1999/xhtml")
+                   (xml:lang "ja"))
+                (head (title "目次")
+                      (link (@ (rel "stylesheet")
+                               (type "text/css")
+                               (href "style.css"))))
+                (body
+                 (section
+                  (@ (epub:type "frontmatter toc"))
+                  (h1 "目次")
+                  (nav (@ (epub:type "toc")
+                          (id "toc"))
+                       ,(topic-item topic))))))
+        #f
+        '(omit-xml-declaration . #t)
+        '(indent . #f)
+        )))))
 
-(define (opt topic id)
+(define (opf topic id)
   (define manifest
     (let1 query (sxpath "//div[@class='novel_sublist']//a[starts-with(@href,'/')]")
       (map
@@ -226,7 +235,7 @@
          (package
           (@ (xmlns "http://www.idpf.org/2007/opf")
              (unique-identifier "BookId")
-             (version "2.0"))
+             (version "3.0"))
           (metadata
            (dc:title ,(novel-title topic))
            (dc:creator ,(novel-author topic))
@@ -234,70 +243,33 @@
            (dc:identifier (@ (id "BookId")) ,id)
            (dc:subject "General Fiction")
            (dc:description ,(novel-ex topic))
+           (meta (@ (property "dcterms:modified"))
+                 ,(date->string (current-date) "~Y-~m-~dT~H:~M:~SZ"))
            ,@(if-let1 series-title (novel-series topic)
                `((meta (@ (name "calibre:series") (content ,series-title)))
                  (meta (@ (name "calibre:series_index") (content "0"))))
                '()))
           (manifest
-           (item (@ (id "toc")
-                    (href "toc.ncx")
-                    (media-type "application/x-dtbncx+xml")))
+           (item (@ (id "nav")
+                    (href "nav.xhtml")
+                    (media-type "application/xhtml+xml")
+                    (properties "nav")))
            (item (@ (id "title")
                     (href "title.xhtml")
-                    (media-type "application/xhtml+xml")))
-           (item (@ (id "TableOfContents")
-                    (href "topic.xhtml")
                     (media-type "application/xhtml+xml")))
            (item (@ (id "style")
                     (href "style.css")
                     (media-type "text/css")))
            ,@manifest)
-          (spine (@ (toc "toc"))
-            (itemref (@ (idref "title")))
-            (itemref (@ (idref "TableOfContents")))
-            ,@spine)
+          (spine
+           (itemref (@ (idref "nav")))
+           (itemref (@ (idref "title")))
+           ,@spine)
           (guide
            (reference (@ (type "title")
                          (title "title")
-                         (href "title.xhtml")))
-           (reference (@ (type "toc")
-                         (title "Table of Contents")
-                         (href "topic.xhtml"))))
+                         (href "title.xhtml"))))
           )))))))
-
-(define (ncx topic id)
-  (define nav
-    (let1 query (sxpath "//div[@class='novel_sublist']//a[starts-with(@href,'/')]")
-      (map
-       (match-lambda
-        (('a ('@ ('href (? string? (= #/^\/([^\/]+)\/(.+)\/$/ m)))) t)
-         `(navPoint (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
-                       (playOrder ,(format #f "~a" (m 2))))
-            (navLabel (text ,t))
-            (content (@ (src ,(format #f "~4,,,'0@a.xhtml" (m 2))))))))
-       (query topic))))
-  
-  (with-output-to-string
-    (^[]
-      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-      (display "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\" \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">")
-      (write-tree
-       (srl:parameterizable
-        `(*TOP*
-          (ncx (@ (xmlns "http://www.daisy.org/z3986/2005/ncx/")
-                  (xml:lang "en")
-                  (version "2005-1"))
-            (head
-             (meta (@ (name "dtb:uid") (content ,id)))
-             (meta (@ (name "dtb:depth") (content "1")))
-             (meta (@ (name "dtb:totalPageCount") (content "0")))
-             (meta (@ (name "dtb:maxPageNumber") (content "0"))))
-            (docTitle
-             (text ,(novel-title topic)))
-            (navMap
-             ,@nav)
-            )))))))
-
 
 (define (line->para a)
   (reverse!
@@ -348,11 +320,10 @@ body {
      (fsencode (sanitize #`"[,(novel-author topic)] ,(novel-title topic).epub"))
     `(("mimetype" ,(mimetype) #f)
       ("OPS/title.xhtml" ,(title-page topic) #t)
-      ("OPS/topic.xhtml" ,(topic-page topic) #t)
+      ("OPS/nav.xhtml" ,(topic-page topic) #t)
       ("OPS/style.css" ,(style) #t)
       ("META-INF/container.xml" ,(container) #t)
-      ("OPS/content.opf" ,(opt topic n-code) #t)
-      ("OPS/toc.ncx" ,(ncx topic n-code) #t)
+      ("OPS/content.opf" ,(opf topic n-code) #t)
       ,@(map (^x
               (let ((pathname (car x))
                     (title (cadr x))
@@ -364,7 +335,7 @@ body {
                  (with-output-to-string
                    (^[]
                      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-                     (display "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n")
+                     (display "<!DOCTYPE html>\n")
                      (write-tree
                       (srl:parameterizable
                        `(*TOP*
