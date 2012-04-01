@@ -226,62 +226,62 @@
         (('a ('@ ('href (? string? (= #/^\/([^\/]+)\/(.+)\/$/ m)))) t)
          `(itemref (@ (idref ,(format #f "id_~4,,,'0@a" (m 2)))))))
        (query topic))))
-      
+  
   (with-output-to-string
     (^[]
-     (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-     (write-tree
-      (srl:parameterizable
-       `(*TOP*
-         (@@ (*NAMESPACES*
-              (dc "http://purl.org/dc/elements/1.1/")
-              (dcterms "http://purl.org/dc/terms/")
-              (xsi "http://www.w3.org/2001/XMLSchema-instance")
-              (opf "http://www.idpf.org/2007/opf")))
-         (package
-          (@ (xmlns "http://www.idpf.org/2007/opf")
-             (unique-identifier "BookId")
-             (version "3.0"))
-          (metadata
-           (dc:title ,(novel-title topic))
-           (dc:creator ,(novel-author topic))
-           (dc:language "ja")
-           (dc:identifier (@ (id "BookId")) ,id)
-           (dc:subject "General Fiction")
-           (dc:description ,(novel-ex topic))
-           (meta (@ (property "dcterms:modified"))
-                 ,(date->string (current-date) "~Y-~m-~dT~H:~M:~SZ"))
-           ,@(if-let1 series-title (novel-series topic)
-               `((meta (@ (name "calibre:series") (content ,series-title)))
-                 (meta (@ (name "calibre:series_index") (content "0"))))
-               '()))
-          (manifest
-           (item (@ (id "toc")
-                    (href "toc.ncx")
-                    (media-type "application/x-dtbncx+xml")))
-           (item (@ (id "nav")
-                    (href "nav.xhtml")
-                    (media-type "application/xhtml+xml")
-                    (properties "nav")))
-           (item (@ (id "title")
-                    (href "title.xhtml")
-                    (media-type "application/xhtml+xml")))
-           (item (@ (id "style")
-                    (href "style.css")
-                    (media-type "text/css")))
-           ,@manifest)
-          (spine (@ (toc "toc")
-                    ,@(if (option-vertical)
-                          '((page-progression-direction "rtl"))
-                          '()))
-           (itemref (@ (idref "nav")))
-           (itemref (@ (idref "title")))
-           ,@spine)
-          (guide
-           (reference (@ (type "title")
-                         (title "title")
-                         (href "title.xhtml"))))
-          )))))))
+      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
+      (write-tree
+       (srl:parameterizable
+        `(*TOP*
+          (@@ (*NAMESPACES*
+               (dc "http://purl.org/dc/elements/1.1/")
+               (dcterms "http://purl.org/dc/terms/")
+               (xsi "http://www.w3.org/2001/XMLSchema-instance")
+               (opf "http://www.idpf.org/2007/opf")))
+          (package
+           (@ (xmlns "http://www.idpf.org/2007/opf")
+              (unique-identifier "BookId")
+              (version "3.0"))
+           (metadata
+            (dc:title ,(novel-title topic))
+            (dc:creator ,(novel-author topic))
+            (dc:language "ja")
+            (dc:identifier (@ (id "BookId")) ,id)
+            (dc:subject "General Fiction")
+            (dc:description ,(novel-ex topic))
+            (meta (@ (property "dcterms:modified"))
+                  ,(date->string (current-date) "~Y-~m-~dT~H:~M:~SZ"))
+            ,@(if-let1 series-title (novel-series topic)
+                `((meta (@ (name "calibre:series") (content ,series-title)))
+                  (meta (@ (name "calibre:series_index") (content "0"))))
+                '()))
+           (manifest
+            (item (@ (id "toc")
+                     (href "toc.ncx")
+                     (media-type "application/x-dtbncx+xml")))
+            (item (@ (id "nav")
+                     (href "nav.xhtml")
+                     (media-type "application/xhtml+xml")
+                     (properties "nav")))
+            (item (@ (id "title")
+                     (href "title.xhtml")
+                     (media-type "application/xhtml+xml")))
+            (item (@ (id "style")
+                     (href "style.css")
+                     (media-type "text/css")))
+            ,@manifest)
+           (spine (@ (toc "toc")
+                     ,@(if (option-vertical)
+                           '((page-progression-direction "rtl"))
+                           '()))
+                  (itemref (@ (idref "title")))
+                  (itemref (@ (idref "nav")))
+                  ,@spine)
+           (guide
+            (reference (@ (type "title")
+                          (title "title")
+                          (href "title.xhtml"))))
+           )))))))
 
 (define (line->para a)
   (reverse!
