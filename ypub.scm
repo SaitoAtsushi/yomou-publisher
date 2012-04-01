@@ -358,7 +358,8 @@ body {
 (define (mimetype) "application/epub+zip")
 
 (define (usage cmd)
-  (print "usage: " cmd " N-CODE")
+  (print "usage: " (sys-basename cmd) " [option] N-CODE\n\n"
+         "--vertical | -v     vertical writing mode")
   (exit))
 
 (define (epubize n-code)
