@@ -340,9 +340,7 @@ ol {
  margin: 0;
 }
 p {
-,(if (option-vertical) 
- \"margin: 0 0.3em 0 0.3em;\"
- \"margin: 0.3em 0 0.3em 0;\")
+ margin: 0;
 }
 body {
  margin: 0;
