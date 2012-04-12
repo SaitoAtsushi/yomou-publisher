@@ -5,6 +5,7 @@
 (define-constant *fsencode* 'Shift_JIS) ;; file-system encoding
 
 (use rfc.http)
+(use rfc.base64)
 (use gauche.charconv)
 (use sxml.sxpath)
 (use sxml.serializer)
@@ -108,7 +109,36 @@
     (unless (string=? "200" status) (error "http error"))
     (regexp-replace-all #/<rb>(.+?)<\/rb>/ body (cut <> 1))))
 
-(define novel-body (sxpath "//div[@id='novel_view']/node()"))
+(define (path-split url)
+  (let1 m (#/^http:\/\/([^\/]+)(\/.+)$/ url)
+    (values (m 1) (m 2))))
+
+(define (image-download url)
+  (receive (domain path)
+      (path-split url)
+    (receive (status head body)
+        (http-get domain path)
+      (string-append "data:"
+                     (cadr (assoc "content-type" head))
+                     ";base64,"
+                     (base64-encode-string body)))))
+
+(define (image-replace! x)
+  (let1 src (sxml:attr x 'src)
+    (sxml:change-attr! x `(src ,(image-download src)))))
+
+(define image-pack
+  (let1 query (sxpath "//img")
+    (^[x]
+      (rlet1 nodes (query x)
+        (for-each image-replace! nodes)))))
+
+(define novel-body
+  (let1 query (sxpath "//div[@id='novel_view']/node()")
+    (^[x]
+      (rlet1 nodes (query x)
+        (image-pack nodes)))))
+
 (define novel-subtitle (if-car-sxpath "//div[@class='novel_subtitle']/text()"))
 
 (define novel-ex
