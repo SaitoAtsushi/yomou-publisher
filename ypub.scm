@@ -9,10 +9,12 @@
 (use gauche.charconv)
 (use sxml.sxpath)
 (use sxml.serializer)
+(use sxml.ssax)
 (use text.tree)
 (use util.match)
 (use srfi-1)
 (use gauche.collection)
+(use gauche.generator)
 (use util.queue)
 (use gauche.parameter)
 (use gauche.parseopt)
@@ -23,8 +25,6 @@
 (use srfi-19)
 (use srfi-60)
 (use srfi-13)
-
-(require "htmlprag") ;; http://www.neilvandyke.org/htmlprag/
 
 (define option-vertical (make-parameter #f))
 
@@ -133,59 +133,68 @@
       (rlet1 nodes (query x)
         (for-each image-replace! nodes)))))
 
-(define novel-body
-  (let1 query (sxpath "//div[@id='novel_view']/node()")
-    (^[x]
-      (rlet1 nodes (query x)
-        (image-pack nodes)))))
+(define (novel-body x)
+  (let* ((m (#/<div class=\"novel_view\" id=\"novel_view\">(.+?)<\/div>/ x))
+         (sx (ssax:xml->sxml (open-input-string
+                              (regexp-replace-all #/ border=0 \/>/
+                                                  (m 0)
+                                                  " />"))
+                             '())))
+    (image-pack sx)
+    sx))
 
-(define novel-subtitle (if-car-sxpath "//div[@class='novel_subtitle']/text()"))
+(define (novel-subtitle x)
+  (let1 m (#/<div class=\"novel_subtitle\">(?:<div class=\"chapter_title\">[^<]+<\/div>)?([^<]+)<\/div>/ x)
+    (m 1)))
 
-(define novel-ex
-  (let1 query (sxpath "//div[@class='novel_ex']/text()")
-    (^x (apply string-append (query x)))))
+(define (novel-ex x)
+  (let1 m (#/<div class=\"novel_ex\">([^<]+)<\/div>/ x)
+    (m 1)))
 
-(define novel-author
-  (let ((query (if-car-sxpath "//div[@class='novel_writername']/a/text()"))
-        (query2 (if-car-sxpath "//div[@class='novel_writername']/text()")))
-    (^x (if-let1 author (query x)
-          author
-          ((#/\uff1a(.+)/ (query2 x)) 1)))))
+(define (novel-author x)
+  (let1 m (#/<div class="novel_writername">.+?(?:\uff1a|>)([^<]+)+<\// x)
+    (m 1)))
 
-(define novel-list (sxpath "//div[@class='novel_sublist']//a[starts-with(@href,'/')]/@href/text()"))
+(define (novel-title x)
+  (let1 m
+      (#/<div class=\"novel_title\">\r\n(?:<div .+?<\/a><\/div>\r\n)?([^<]+)\r\n<\/div>/ x)
+    (m 1)))
 
-(define novel-title
-  (let1 query (sxpath "//div[@class='novel_title']/text()")
-    (^x (apply string-append (query x)))))
+(define (novel-series x)
+  (if-let1 m
+      (#/<div class=\"series\"><a href=\"\/[^\/]+\/\">([^<]+)<\/a><\/div>/ x)
+    (m 1)
+    #f))
 
-(define novel-series (if-car-sxpath "//div[@class='series']/a/text()"))
+(define (format-href x)
+  (let1 m (#/^\/[^\/]+\/(.+)\/$/ x)
+    (format #f "~4,,,'0@a.xhtml" (m 1))))
+
+(define (format-link x)
+  `(li (a (@ (href ,(format-href (car x)))) ,(cdr x))))
 
 (define (topic-grouping x)
   (cons 'ol
         (let loop ((x x))
-          (cond ((null?  x) '())
-                ((eqv? 'h2 (caar x))
-                 (receive (a b)
-                     (span (^x (eqv? (car x) 'li)) (cdr x))
+          (cond [(null?  x) '()]
+                [(string? (car x))
+                 (receive (a b) (span pair? (cdr x))
                    (cons
-                    (list 'li (list 'span (cadar x)) (cons 'ol a))
-                    (loop b))))
-                ((eqv? 'li (caar x))
-                 x)))))
+                    `(li (span ,(car x))
+                         (ol ,@(map format-link a)))
+                    (loop b)))]
+                [(pair? (car x))
+                 (map format-link x)]))))
 
-(define topic-item
-  (let1 query (sxpath "//div[@class='novel_sublist']//node()[@class='chapter' or starts-with(@href,'/')]")
-    (^x
-     (topic-grouping
-      (map
-       (match-lambda
-        (('td ('|@| . _) m) `(h2 ,m))
-        (('a ('@ ('href (? string? (= #/^\/([^\/]+)\/(.+)\/$/ m)))) t)
-         `(li (a (@ (href ,(format #f "~4,,,'0@a.xhtml" (m 2)))) ,t)))
-        (a a) )
-       (query x))))))
+(define (rxmatch-item x)
+  (cond ((x 1) => values)
+        (else (cons (x 2) (x 3)))))
 
-(define (title-page topic)
+(define novel-list
+  (let1 query #/<tr><td class=\"chapter\" colspan=\"4\">([^<]+)<\/td><\/tr>|<td class=\"(?:period|long)_subtitle\"><a href=\"([^\"]+)\">([^<]+)<\/a><\/td>/
+    ($ generator->list $ gmap rxmatch-item $ grxmatch query $)))
+
+(define (title-page title author ex)
   (with-output-to-string
     (^[]
       (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
@@ -195,16 +204,16 @@
         `(*TOP*
           (html (@ (xmlns "http://www.w3.org/1999/xhtml")
                    (xml:lang "ja"))
-                (head (title ,(novel-title topic))
+                (head (title ,title)
                       (link (@ (rel "stylesheet")
                                (type "text/css")
                                (href "style.css"))))
                 (body
-                 (h1 ,(novel-title topic))
+                 (h1 ,title)
                  (h2 "作者")
-                 (p ,(novel-author topic))
+                 (p ,author)
                  (h2 "あらすじ")
-                 (p ,(novel-ex topic)))))
+                 (p ,ex))))
         #f
         '(omit-xml-declaration . #t)
         '(indent . #f)
@@ -232,30 +241,30 @@
                   (h1 "目次")
                   (nav (@ (epub:type "toc")
                           (id "toc"))
-                       ,(topic-item topic))))))
+                       ,(topic-grouping topic))))))
         #f
         '(omit-xml-declaration . #t)
         '(indent . #f)
         )))))
 
-(define (opf topic id)
+(define (opf topic id title author ex series)
   (define manifest
-    (let1 query (sxpath "//div[@class='novel_sublist']//a[starts-with(@href,'/')]")
-      (map
-       (match-lambda
-        (('a ('@ ('href (? string? (= #/^\/([^\/]+)\/(.+)\/$/ m)))) t)
-         `(item (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
-                   (href ,(format #f "~4,,,'0@a.xhtml" (m 2)))
-                   (media-type "application/xhtml+xml")))))
-       (query topic))))
+    (filter-map
+     (^x (if (pair? x)
+             (let1 m (#/^\/([^\/]+)\/(.+)\/$/ (car x))
+               `(item (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
+                         (href ,(format #f "~4,,,'0@a.xhtml" (m 2)))
+                         (media-type "application/xhtml+xml"))))
+             #f))
+     topic))
 
   (define spine
-    (let1 query (sxpath "//div[@class='novel_sublist']//a[starts-with(@href,'/')]")
-      (map
-       (match-lambda
-        (('a ('@ ('href (? string? (= #/^\/([^\/]+)\/(.+)\/$/ m)))) t)
-         `(itemref (@ (idref ,(format #f "id_~4,,,'0@a" (m 2)))))))
-       (query topic))))
+    (filter-map
+     (^x (if (pair? x)
+             (let1 m (#/^\/([^\/]+)\/(.+)\/$/ (car x))
+               `(itemref (@ (idref ,(format #f "id_~4,,,'0@a" (m 2))))))
+             #f))
+     topic))
   
   (with-output-to-string
     (^[]
@@ -273,15 +282,15 @@
               (unique-identifier "BookId")
               (version "3.0"))
            (metadata
-            (dc:title ,(novel-title topic))
-            (dc:creator ,(novel-author topic))
+            (dc:title ,title)
+            (dc:creator ,author)
             (dc:language "ja")
             (dc:identifier (@ (id "BookId")) ,id)
             (dc:subject "General Fiction")
-            (dc:description ,(novel-ex topic))
+            (dc:description ,ex)
             (meta (@ (property "dcterms:modified"))
                   ,(date->string (current-date) "~Y-~m-~dT~H:~M:~SZ"))
-            ,@(if-let1 series-title (novel-series topic)
+            ,@(if-let1 series-title series
                 `((meta (@ (name "calibre:series") (content ,series-title)))
                   (meta (@ (name "calibre:series_index") (content "0"))))
                 '()))
@@ -324,18 +333,18 @@
               a)
      (if (null? y) x (cons (cons 'p (reverse! y)) x)))))
 
-(define (ncx topic id)
+(define (ncx topic id title)
   (define nav
-    (let1 query (sxpath "//div[@class='novel_sublist']//a[starts-with(@href,'/')]")
-      (map
-       (match-lambda
-        (('a ('@ ('href (? string? (= #/^\/([^\/]+)\/(.+)\/$/ m)))) t)
-         `(navPoint (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
-                       (playOrder ,(format #f "~a" (m 2))))
-            (navLabel (text ,t))
-            (content (@ (src ,(format #f "~4,,,'0@a.xhtml" (m 2))))))))
-       (query topic))))
-  
+    (filter-map
+     (^x (if (pair? x)
+             (let1 m (#/^\/([^\/]+)\/(.+)\/$/ (car x))
+               `(navPoint (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
+                             (playOrder ,(format #f "~a" (m 2))))
+                 (navLabel (text ,(cdr x)))
+                 (content (@ (src ,(format #f "~4,,,'0@a.xhtml" (m 2)))))))
+             #f))
+     topic))
+
   (with-output-to-string
     (^[]
       (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
@@ -352,9 +361,8 @@
              (meta (@ (name "dtb:totalPageCount") (content "0")))
              (meta (@ (name "dtb:maxPageNumber") (content "0"))))
             (docTitle
-             (text ,(novel-title topic)))
-            (navMap
-             ,@nav)
+             (text ,title))
+            (navMap ,@nav)
             )))))))
 
 (define (style)
@@ -378,7 +386,7 @@ body {
 }")
 
 (define (container)
-"<?xml version=\"1.0\" ?>
+  "<?xml version=\"1.0\" ?>
 <container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">
    <rootfiles>
       <rootfile full-path=\"OPS/content.opf\" media-type=\"application/oebps-package+xml\"/>
@@ -393,53 +401,58 @@ body {
   (exit))
 
 (define (epubize n-code)
-  (let* ((topic (html->sxml (download #`"/,|n-code|/")))
-         (lst (novel-list topic))
-         (bodies (parallel-map (^x (let1 a (html->sxml (download x))
-                                     (list x (novel-subtitle a) (novel-body a))))
-                               lst)))
+  (let* ((topic (download #`"/,|n-code|/"))
+         (topic-list (novel-list topic))
+         (lst (filter-map (^x (and (pair? x) (car x))) topic-list))
+         (bodies (parallel-map
+                  (^x (let1 a (download x)
+                        (list x (novel-subtitle a) (novel-body a))))
+                  lst))
+         (title (novel-title topic))
+         (author (novel-author topic))
+         (ex (novel-ex topic))
+         (series (novel-series topic)))
     (zip-encode
      (fsencode (sanitize #`"[,(novel-author topic)] ,(novel-title topic).epub"))
-    `(("mimetype" ,(mimetype) #f)
-      ("OPS/title.xhtml" ,(title-page topic) #t)
-      ("OPS/nav.xhtml" ,(topic-page topic) #t)
-      ("OPS/style.css" ,(style) #t)
-      ("META-INF/container.xml" ,(container) #t)
-      ("OPS/content.opf" ,(opf topic n-code) #t)
-      ("OPS/toc.ncx" ,(ncx topic n-code) #t)
-      ,@(map (^x
-              (let ((pathname (car x))
-                    (title (cadr x))
-                    (body (caddr x)))
-                (list
-                 (rxmatch-case pathname
-                   (#/^\/([^\/]+)\/(.+)\/$/ (#f d f)
-                    (format #f "OPS/~4,,,'0@a.xhtml" f)))
-                 (with-output-to-string
-                   (^[]
-                     (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-                     (display "<!DOCTYPE html>\n")
-                     (write-tree
-                      (srl:parameterizable
-                       `(*TOP*
-                         (html (@ (xmlns "http://www.w3.org/1999/xhtml")
-                                  (xml:lang "ja"))
-                               (head
-                                (title ,title)
-                                (link (@ (rel "stylesheet")
-                                         (type "text/css")
-                                         (href "style.css"))))
-                               (body
-                                (h2 ,title)
-                                ,@(line->para body))))
-                       #f
-                       '(omit-xml-declaration . #t)
-                       '(indent . #f)
-                       ))))
-                 #t
-                 )))
-             bodies)
-      ))))
+     `(("mimetype" ,(mimetype) #f)
+       ("OPS/title.xhtml" ,(title-page title author ex) #t)
+       ("OPS/nav.xhtml" ,(topic-page topic-list) #t)
+       ("OPS/style.css" ,(style) #t)
+       ("META-INF/container.xml" ,(container) #t)
+       ("OPS/content.opf" ,(opf topic-list n-code title author ex series) #t)
+       ("OPS/toc.ncx" ,(ncx topic-list n-code title) #t)
+       ,@(map (^x
+               (let ((pathname (car x))
+                     (title (cadr x))
+                     (body (caddr x)))
+                 (list
+                  (rxmatch-case pathname
+                    (#/^\/([^\/]+)\/(.+)\/$/ (#f d f)
+                     (format #f "OPS/~4,,,'0@a.xhtml" f)))
+                  (with-output-to-string
+                    (^[]
+                      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
+                      (display "<!DOCTYPE html>\n")
+                      (write-tree
+                       (srl:parameterizable
+                        `(*TOP*
+                          (html (@ (xmlns "http://www.w3.org/1999/xhtml")
+                                   (xml:lang "ja"))
+                            (head
+                             (title ,title)
+                             (link (@ (rel "stylesheet")
+                                      (type "text/css")
+                                      (href "style.css"))))
+                            (body
+                             (h2 ,title)
+                             ,@(line->para ((sxpath "//div/node()")body)))))
+                        #f
+                        '(omit-xml-declaration . #t)
+                        '(indent . #f)
+                        ))))
+                  #t)))
+              bodies)
+       ))))
 
 (define (main args)
   (let-args (cdr args)
