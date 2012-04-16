@@ -28,6 +28,12 @@
 
 (define option-vertical (make-parameter #f))
 
+(define (limitter-lineheight x)
+  (unless (<= 100 x 300) (error "Lineheight must be between 100 to 300."))
+  x)
+
+(define option-lineheight (make-parameter 140 limitter-lineheight))
+
 (cond-expand
  [gauche.sys.threads
   (define *max-thread* (make-parameter 18))
@@ -383,6 +389,7 @@ p {
 body {
  margin: 0;
  padding: 0;
+,(if (option-lineheight) #`\"line-height: ,(option-lineheight)%\" \"\")
 }")
 
 (define (container)
@@ -396,8 +403,10 @@ body {
 (define (mimetype) "application/epub+zip")
 
 (define (usage cmd)
-  (print "usage: " (sys-basename cmd) " [option] N-CODE\n\n"
-         "--vertical | -v     vertical writing mode")
+  (print "usage: " (sys-basename cmd) " [option] N-CODE ...\n\n"
+         "options:\n"
+         "  -v, --vertical             vertical writing mode\n"
+         "  -l NUM, --lineheight=NUM   Specify percentage of line height (100-300)\n")
   (exit))
 
 (define (epubize n-code)
@@ -455,8 +464,11 @@ body {
        ))))
 
 (define (main args)
-  (let-args (cdr args)
-      ((vertical "v|vertical" => (cut option-vertical #t))
-       . rest)
-  (when (> 2 (length args)) (usage (car args)))
-  (for-each (compose epubize string-downcase) rest)))
+  (guard (e ((condition-has-type? e <error>)
+             (display (~ e 'message))))
+    (let-args (cdr args)
+        ((vertical "v|vertical" => (cut option-vertical #t))
+         (lineheight "l|lineheight=n" => (cut option-lineheight <>))
+         . rest)
+      (when (> 2 (length args)) (usage (car args)))
+      (for-each (compose epubize string-downcase) rest))))
