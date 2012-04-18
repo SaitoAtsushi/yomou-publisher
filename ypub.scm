@@ -32,7 +32,7 @@
   (unless (<= 100 x 300) (error "Lineheight must be between 100 to 300."))
   x)
 
-(define option-lineheight (make-parameter 140 limitter-lineheight))
+(define option-lineheight (make-parameter 150 limitter-lineheight))
 
 (cond-expand
  [gauche.sys.threads
