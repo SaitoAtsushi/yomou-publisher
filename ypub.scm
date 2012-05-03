@@ -389,7 +389,7 @@ p {
 body {
  margin: 0;
  padding: 0;
-,(if (option-lineheight) #`\"line-height: ,(option-lineheight)%\" \"\")
+,(if (option-lineheight) #`\"line-height: ,(* 0.01 (option-lineheight))\" \"\")
 }")
 
 (define (container)
