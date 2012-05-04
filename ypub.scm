@@ -340,17 +340,36 @@
      (if (null? y) x (cons (cons 'p (reverse! y)) x)))))
 
 (define (ncx topic id title)
-  (define nav
-    (filter-map
-     (^x (if (pair? x)
-             (let1 m (#/^\/([^\/]+)\/(.+)\/$/ (car x))
-               `(navPoint (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
-                             (playOrder ,(format #f "~a" (m 2))))
-                 (navLabel (text ,(cdr x)))
-                 (content (@ (src ,(format #f "~4,,,'0@a.xhtml" (m 2)))))))
-             #f))
-     topic))
+  (define counter
+    (let1 c 0
+      (^[](inc! c) c)))
 
+  (define (navPoint x)
+    (let1 m (#/^\/([^\/]+)\/(.+)\/$/ (car x))
+      `(navPoint (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
+                    (playOrder ,(format #f "~a" (m 2))))
+                 (navLabel (text ,(cdr x)))
+                 (content (@ (src ,(format #f "~4,,,'0@a.xhtml" (m 2))))))))
+  
+  (define (nav-grouping x)
+    (let loop ((x x))
+      (cond [(null?  x) '()]
+            [(string? (car x))
+             (receive (a b) (span pair? (cdr x))
+               (cons
+                `(navPoint (@ (id ,#`"chapter_,(counter)"))
+                           (navLabel (text ,(car x)))
+                           (content
+                            (@ (src
+                                ,(let1 m (#/^\/([^\/]+)\/(.+)\/$/ (caar a))
+                                   (format #f "~4,,,'0@a.xhtml" (m 2))))))
+                     ,@(map navPoint a))
+                (loop b)))]
+            [(pair? (car x))
+             (map navPoint x)])))
+
+  (define nav (nav-grouping topic))
+  
   (with-output-to-string
     (^[]
       (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
