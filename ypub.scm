@@ -6,6 +6,7 @@
 
 (use rfc.http)
 (use rfc.base64)
+(use util.digest)
 (use gauche.charconv)
 (use sxml.sxpath)
 (use sxml.serializer)
@@ -22,6 +23,7 @@
 (use sxml.tools)
 (use binary.pack)
 (use rfc.zlib)
+(use rfc.md5)
 (use srfi-19)
 (use srfi-60)
 (use srfi-13)
@@ -253,6 +255,13 @@
         '(indent . #f)
         )))))
 
+(define (uuid4 src)
+  (let1 v (digest-string <md5> src)
+    (string-byte-set! v 6 (logior (logand (string-byte-ref v 6) #x0f) #x40))
+    (string-byte-set! v 8 (logior (logand (string-byte-ref v 8) #x3f) #x80))
+    (let1 m (#/^([[:xdigit:]]{8})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{12})/ (digest-hexify v))
+      #`",(m 1)-,(m 2)-,(m 3)-,(m 4)-,(m 5)")))
+
 (define (opf topic id title author ex series)
   (define manifest
     (filter-map
@@ -291,7 +300,7 @@
             (dc:title ,title)
             (dc:creator ,author)
             (dc:language "ja")
-            (dc:identifier (@ (id "BookId")) ,id)
+            (dc:identifier (@ (id "BookId")) ,#`"urn:uuid:,(uuid4 id)")
             (dc:subject "General Fiction")
             (dc:description ,ex)
             (meta (@ (property "dcterms:modified"))
