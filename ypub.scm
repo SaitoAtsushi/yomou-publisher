@@ -411,11 +411,11 @@ ol {
 }
 p {
  margin: 0;
+,(if (option-lineheight) #`\"line-height: ,(* 0.01 (option-lineheight))\" \"\")
 }
 body {
  margin: 0;
  padding: 0;
-,(if (option-lineheight) #`\"line-height: ,(* 0.01 (option-lineheight))\" \"\")
 }")
 
 (define (container)
