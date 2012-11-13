@@ -444,6 +444,7 @@ body {
          (author (novel-author topic))
          (ex (novel-ex topic))
          (series (novel-series topic)))
+    (prog 'finish)
     (zip-encode
      (fsencode (sanitize #`"[,(novel-author topic)] ,(novel-title topic).epub"))
      `(("mimetype" ,(mimetype) #f)
