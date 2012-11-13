@@ -31,6 +31,8 @@
 
 (define option-vertical (make-parameter #f))
 
+(define option-wait-time (make-parameter 2))
+
 (define (limitter-lineheight x)
   (unless (<= 100 x 300) (error "Lineheight must be between 100 to 300."))
   x)
@@ -101,6 +103,7 @@
   (receive (status head body)
       (http-get "ncode.syosetu.com" path)
     (unless (string=? "200" status) (error "http error"))
+    (sys-sleep (option-wait-time))
     (regexp-replace-all #/<rb>(.+?)<\/rb>/ body (cut <> 1))))
 
 (define (path-split url)
@@ -421,7 +424,8 @@ body {
   (print "usage: " (sys-basename cmd) " [option] N-CODE ...\n\n"
          "options:\n"
          "  -v, --vertical             vertical writing mode\n"
-         "  -l NUM, --lineheight=NUM   Specify percentage of line height (100-300)\n")
+         "  -l NUM, --lineheight=NUM   Specify percentage of line height (100-300)\n"
+         "  -w NUM, --waittime=NUM     Downloading interval (Default is 2s)")
   (exit))
 
 (define (epubize n-code)
@@ -488,6 +492,7 @@ body {
     (let-args (cdr args)
         ((vertical "v|vertical" => (cut option-vertical #t))
          (lineheight "l|lineheight=n" => (cut option-lineheight <>))
+         (waittime "w|waittime=n" => (cut option-wait-time <>))
          . rest)
       (when (> 2 (length args)) (usage (car args)))
       (for-each (compose epubize string-downcase) rest))))
