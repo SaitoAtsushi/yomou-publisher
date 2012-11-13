@@ -36,19 +36,6 @@
 
 (define option-lineheight (make-parameter 150 limitter-lineheight))
 
-(cond-expand
- [gauche.sys.threads
-  (define *max-thread* (make-parameter 18))
-  (use control.thread-pool)
-  (define (parallel-map proc lst)
-    (let1 pool (make-thread-pool (*max-thread*))
-      (for-each (^x (add-job! pool (cut proc x) #t)) lst)
-      (terminate-all! pool)
-      (map! (cut ~ <> 'result) (queue->list (thread-pool-results pool)))
-      ))]
- [else
-  (define parallel-map map)])
-
 (define (fsencode str)
   (ces-convert str (gauche-character-encoding) *fsencode*))
 
@@ -439,7 +426,7 @@ body {
   (let* ((topic (download #`"/,|n-code|/"))
          (topic-list (novel-list topic))
          (lst (filter-map (^x (and (pair? x) (car x))) topic-list))
-         (bodies (parallel-map
+         (bodies (map
                   (^x (let1 a (download x)
                         (list x (novel-subtitle a) (novel-body a))))
                   lst))
