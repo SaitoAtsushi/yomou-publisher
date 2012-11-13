@@ -117,8 +117,9 @@
                      (base64-encode-string body)))))
 
 (define (image-replace! x)
-  (let1 src (sxml:attr x 'src)
-    (sxml:change-attr! x `(src ,(image-download src)))))
+  (let* ((src (sxml:attr x 'src))
+         (nsrc ((#/\/([^\/]+)\/$/ src) 1)))
+    (sxml:change-attr! x `(src ,(image-download #`"http://5626.mitemin.net/userpageimage/viewimage/icode/,|nsrc|/")))))
 
 (define image-pack
   (let1 query (sxpath "//img")
