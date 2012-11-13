@@ -27,6 +27,7 @@
 (use srfi-19)
 (use srfi-60)
 (use srfi-13)
+(use text.progress)
 
 (define option-vertical (make-parameter #f))
 
@@ -427,8 +428,12 @@ body {
   (let* ((topic (download #`"/,|n-code|/"))
          (topic-list (novel-list topic))
          (lst (filter-map (^x (and (pair? x) (car x))) topic-list))
+         (prog (make-text-progress-bar :header n-code
+                                       :header-width 9
+                                       :max-value (length lst)))
          (bodies (map
                   (^x (let1 a (download x)
+                        (prog 'inc 1)
                         (list x (novel-subtitle a) (novel-body a))))
                   lst))
          (title (novel-title topic))
