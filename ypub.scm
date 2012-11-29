@@ -2,7 +2,9 @@
 ;;; -*- mode:gauche; coding: utf-8 -*-
 ;;; Author: SAITO Atsushi
 
-(define-constant *fsencode* 'Shift_JIS) ;; file-system encoding
+(define-constant *fsencode*  ;; file-system encoding
+  (cond-expand (gauche.os.windows 'Shift_JIS)
+               (else 'utf8)))
 
 (use rfc.http)
 (use rfc.base64)
