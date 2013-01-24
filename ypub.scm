@@ -374,7 +374,6 @@
   (with-output-to-string
     (^[]
       (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-      (display "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\" \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">")
       (write-tree
        (srl:parameterizable
         `(*TOP*
@@ -395,8 +394,6 @@
   #`"
 ,(if (option-vertical) \"html {
  -epub-writing-mode: vertical-rl;
- direction: ltr;
- unicode-bidi:bidi-override;
 }\" \"\")
 ol {
  list-style-type: none;
