@@ -30,8 +30,9 @@
 (use srfi-13)
 (use text.progress)
 
-(add-load-path "." :relative :after)
+(add-load-path "." :relative)
 (use zip-archive)
+(use epub)
 
 (define option-vertical (make-parameter #f))
 
@@ -141,31 +142,6 @@
 (define novel-list
   (let1 query #/<tr><td class=\"chapter\" colspan=\"4\">([^<]+)<\/td><\/tr>|<td class=\"(?:period|long)_subtitle\"><a href=\"([^\"]+)\">([^<]+)<\/a><\/td>/
     ($ generator->list $ gmap rxmatch-item $ grxmatch query $)))
-
-(define (title-page title author ex)
-  (with-output-to-string
-    (^[]
-      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-      (display "<!DOCTYPE html>\n")
-      (write-tree
-       (srl:parameterizable
-        `(*TOP*
-          (html (@ (xmlns "http://www.w3.org/1999/xhtml")
-                   (xml:lang "ja"))
-                (head (title ,title)
-                      (link (@ (rel "stylesheet")
-                               (type "text/css")
-                               (href "style.css"))))
-                (body
-                 (h1 ,title)
-                 (h2 "作者")
-                 (p ,author)
-                 (h2 "あらすじ")
-                 (p ,ex))))
-        #f
-        '(omit-xml-declaration . #t)
-        '(indent . #f)
-        )))))
 
 (define (topic-page topic)
   (with-output-to-string
@@ -277,17 +253,6 @@
                           (href "title.xhtml"))))
            )))))))
 
-(define (line->para a)
-  (reverse!
-   (receive (x y)
-       (fold2 (lambda(elt b para)
-                (if (and (pair? elt) (equal? (car elt) 'br))
-                    (values (cons (cons 'p (reverse! para)) b) '())
-                    (values b (cons elt para))))
-              '() '()
-              a)
-     (if (null? y) x (cons (cons 'p (reverse! y)) x)))))
-
 (define (ncx topic id title)
   (define counter
     (let1 c 0
@@ -338,35 +303,6 @@
             (navMap ,@nav)
             )))))))
 
-(define (style)
-  #`"
-,(if (option-vertical) \"html {
- -epub-writing-mode: vertical-rl;
-}\" \"\")
-ol {
- list-style-type: none;
- padding: 0;
- margin: 0;
-}
-p {
- margin: 0;
-,(if (option-lineheight) #`\"line-height: ,(* 0.01 (option-lineheight))\" \"\")
-}
-body {
- margin: 0;
- padding: 0;
-}")
-
-(define (container)
-  "<?xml version=\"1.0\" ?>
-<container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">
-   <rootfiles>
-      <rootfile full-path=\"OPS/content.opf\" media-type=\"application/oebps-package+xml\"/>
-   </rootfiles>
-</container>")
-
-(define (mimetype) "application/epub+zip")
-
 (define (usage cmd)
   (print "usage: " (sys-basename cmd) " [option] N-CODE ...\n\n"
          "options:\n"
@@ -402,7 +338,8 @@ body {
                       :compression-level Z_BEST_COMPRESSION)
        (zip-add-entry archive "OPS/nav.xhtml" (topic-page topic-list)
                       :compression-level Z_BEST_COMPRESSION)
-       (zip-add-entry archive "OPS/style.css" (style)
+       (zip-add-entry archive "OPS/style.css"
+                      (style-sheet (option-vertical) (option-lineheight))
                       :compression-level Z_BEST_COMPRESSION)
        (zip-add-entry archive "META-INF/container.xml" (container)
                       :compression-level Z_BEST_COMPRESSION)
@@ -436,7 +373,8 @@ body {
                                       (href "style.css"))))
                             (body
                              (h2 ,title)
-                             ,@(line->para ((sxpath "//div/node()")body)))))
+                             ,@(line->paragraph
+                                ((sxpath "//div/node()")body)))))
                         #f
                         '(omit-xml-declaration . #t)
                         '(indent . #f)
