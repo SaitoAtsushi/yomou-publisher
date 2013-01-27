@@ -2,14 +2,8 @@
 ;;; -*- mode:gauche; coding: utf-8 -*-
 ;;; Author: SAITO Atsushi
 
-(define-constant *fsencode*  ;; file-system encoding
-  (cond-expand (gauche.os.windows 'Shift_JIS)
-               (else 'utf8)))
-
 (use rfc.http)
 (use rfc.base64)
-(use util.digest)
-(use gauche.charconv)
 (use sxml.sxpath)
 (use sxml.serializer)
 (use sxml.ssax)
@@ -23,16 +17,18 @@
 (use gauche.parseopt)
 (use srfi-27)
 (use sxml.tools)
-(use rfc.zlib)
-(use rfc.md5)
 (use srfi-19)
 (use srfi-60)
 (use srfi-13)
 (use text.progress)
 
 (add-load-path "." :relative)
-(use zip-archive)
 (use epub)
+
+;; file-system encoding
+(*fsencode*
+ (cond-expand (gauche.os.windows 'Shift_JIS)
+              (else 'utf8)))
 
 (define option-vertical (make-parameter #f))
 
@@ -43,12 +39,6 @@
   x)
 
 (define option-lineheight (make-parameter 150 limitter-lineheight))
-
-(define (fsencode str)
-  (ces-convert str (gauche-character-encoding) *fsencode*))
-
-(define (sanitize title)
-  (regexp-replace-all #/[\/()"?<>|:;\r\n]/ title ""))
 
 (define (download path)
   (receive (status head body)
@@ -115,26 +105,6 @@
     (m 1)
     #f))
 
-(define (format-href x)
-  (let1 m (#/^\/[^\/]+\/(.+)\/$/ x)
-    (format #f "~4,,,'0@a.xhtml" (m 1))))
-
-(define (format-link x)
-  `(li (a (@ (href ,(format-href (car x)))) ,(cdr x))))
-
-(define (topic-grouping x)
-  (cons 'ol
-        (let loop ((x x))
-          (cond [(null?  x) '()]
-                [(string? (car x))
-                 (receive (a b) (span pair? (cdr x))
-                   (cons
-                    `(li (span ,(car x))
-                         (ol ,@(map format-link a)))
-                    (loop b)))]
-                [(pair? (car x))
-                 (map format-link x)]))))
-
 (define (rxmatch-item x)
   (cond ((x 1) => values)
         (else (cons (x 2) (x 3)))))
@@ -142,166 +112,6 @@
 (define novel-list
   (let1 query #/<tr><td class=\"chapter\" colspan=\"4\">([^<]+)<\/td><\/tr>|<td class=\"(?:period|long)_subtitle\"><a href=\"([^\"]+)\">([^<]+)<\/a><\/td>/
     ($ generator->list $ gmap rxmatch-item $ grxmatch query $)))
-
-(define (topic-page topic)
-  (with-output-to-string
-    (^[]
-      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-      (display "<!DOCTYPE html>\n")
-      (write-tree
-       (srl:parameterizable
-        `(*TOP*
-          (@@ (*NAMESPACES*
-               (epub "http://www.idpf.org/2007/ops")))
-          (html (@ (xmlns "http://www.w3.org/1999/xhtml")
-                   (xml:lang "ja"))
-                (head (title "目次")
-                      (link (@ (rel "stylesheet")
-                               (type "text/css")
-                               (href "style.css"))))
-                (body
-                 (section
-                  (@ (epub:type "frontmatter toc"))
-                  (h1 "目次")
-                  (nav (@ (epub:type "toc")
-                          (id "toc"))
-                       ,(topic-grouping topic))))))
-        #f
-        '(omit-xml-declaration . #t)
-        '(indent . #f)
-        )))))
-
-(define (uuid4 src)
-  (let1 v (digest-string <md5> src)
-    (string-byte-set! v 6 (logior (logand (string-byte-ref v 6) #x0f) #x40))
-    (string-byte-set! v 8 (logior (logand (string-byte-ref v 8) #x3f) #x80))
-    (let1 m (#/^([[:xdigit:]]{8})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{12})/ (digest-hexify v))
-      #`",(m 1)-,(m 2)-,(m 3)-,(m 4)-,(m 5)")))
-
-(define (opf topic id title author ex series)
-  (define manifest
-    (filter-map
-     (^x (if (pair? x)
-             (let1 m (#/^\/([^\/]+)\/(.+)\/$/ (car x))
-               `(item (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
-                         (href ,(format #f "~4,,,'0@a.xhtml" (m 2)))
-                         (media-type "application/xhtml+xml"))))
-             #f))
-     topic))
-
-  (define spine
-    (filter-map
-     (^x (if (pair? x)
-             (let1 m (#/^\/([^\/]+)\/(.+)\/$/ (car x))
-               `(itemref (@ (idref ,(format #f "id_~4,,,'0@a" (m 2))))))
-             #f))
-     topic))
-  
-  (with-output-to-string
-    (^[]
-      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-      (write-tree
-       (srl:parameterizable
-        `(*TOP*
-          (@@ (*NAMESPACES*
-               (dc "http://purl.org/dc/elements/1.1/")
-               (dcterms "http://purl.org/dc/terms/")
-               (xsi "http://www.w3.org/2001/XMLSchema-instance")
-               (opf "http://www.idpf.org/2007/opf")))
-          (package
-           (@ (xmlns "http://www.idpf.org/2007/opf")
-              (unique-identifier "BookId")
-              (version "3.0"))
-           (metadata
-            (dc:title ,title)
-            (dc:creator ,author)
-            (dc:language "ja")
-            (dc:identifier (@ (id "BookId")) ,#`"urn:uuid:,(uuid4 id)")
-            (dc:subject "General Fiction")
-            (dc:description ,ex)
-            (meta (@ (property "dcterms:modified"))
-                  ,(date->string (current-date) "~Y-~m-~dT~H:~M:~SZ"))
-            ,@(if-let1 series-title series
-                `((meta (@ (name "calibre:series") (content ,series-title)))
-                  (meta (@ (name "calibre:series_index") (content "0"))))
-                '()))
-           (manifest
-            (item (@ (id "toc")
-                     (href "toc.ncx")
-                     (media-type "application/x-dtbncx+xml")))
-            (item (@ (id "nav")
-                     (href "nav.xhtml")
-                     (media-type "application/xhtml+xml")
-                     (properties "nav")))
-            (item (@ (id "title")
-                     (href "title.xhtml")
-                     (media-type "application/xhtml+xml")))
-            (item (@ (id "style")
-                     (href "style.css")
-                     (media-type "text/css")))
-            ,@manifest)
-           (spine (@ (toc "toc")
-                     ,@(if (option-vertical)
-                           '((page-progression-direction "rtl"))
-                           '()))
-                  (itemref (@ (idref "title")))
-                  (itemref (@ (idref "nav")))
-                  ,@spine)
-           (guide
-            (reference (@ (type "title")
-                          (title "title")
-                          (href "title.xhtml"))))
-           )))))))
-
-(define (ncx topic id title)
-  (define counter
-    (let1 c 0
-      (^[](inc! c) c)))
-
-  (define (navPoint x)
-    (let1 m (#/^\/([^\/]+)\/(.+)\/$/ (car x))
-      `(navPoint (@ (id ,(format #f "id_~4,,,'0@a" (m 2)))
-                    (playOrder ,(format #f "~a" (m 2))))
-                 (navLabel (text ,(cdr x)))
-                 (content (@ (src ,(format #f "~4,,,'0@a.xhtml" (m 2))))))))
-  
-  (define (nav-grouping x)
-    (let loop ((x x))
-      (cond [(null?  x) '()]
-            [(string? (car x))
-             (receive (a b) (span pair? (cdr x))
-               (cons
-                `(navPoint (@ (id ,#`"chapter_,(counter)"))
-                           (navLabel (text ,(car x)))
-                           (content
-                            (@ (src
-                                ,(let1 m (#/^\/([^\/]+)\/(.+)\/$/ (caar a))
-                                   (format #f "~4,,,'0@a.xhtml" (m 2))))))
-                     ,@(map navPoint a))
-                (loop b)))]
-            [(pair? (car x))
-             (map navPoint x)])))
-
-  (define nav (nav-grouping topic))
-  
-  (with-output-to-string
-    (^[]
-      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-      (write-tree
-       (srl:parameterizable
-        `(*TOP*
-          (ncx (@ (xmlns "http://www.daisy.org/z3986/2005/ncx/")
-                  (xml:lang "en")
-                  (version "2005-1"))
-            (head
-             (meta (@ (name "dtb:uid") (content ,id)))
-             (meta (@ (name "dtb:depth") (content "1")))
-             (meta (@ (name "dtb:totalPageCount") (content "0")))
-             (meta (@ (name "dtb:maxPageNumber") (content "0"))))
-            (docTitle
-             (text ,title))
-            (navMap ,@nav)
-            )))))))
 
 (define (usage cmd)
   (print "usage: " (sys-basename cmd) " [option] N-CODE ...\n\n"
@@ -311,7 +121,11 @@
          "  -w NUM, --waittime=NUM     Downloading interval (Default is 2s)")
   (exit))
 
-(define (epubize n-code)
+(define (path->page-number x)
+  (let1 m (#/^\/(?:[^\/]+)\/(.+)\/$/ x)
+    (format #f "~4,,,'0@a" (m 1))))
+  
+(define (get-novels n-code)
   (let* ((topic (download #`"/,|n-code|/"))
          (topic-list (novel-list topic))
          (lst (filter-map (^x (and (pair? x) (car x))) topic-list))
@@ -319,69 +133,22 @@
                                        :header-width 9
                                        :max-value (length lst)))
          (bodies (map
-                  (^x (let1 a (download x)
-                        (prog 'inc 1)
-                        (list x (novel-subtitle a) (novel-body a))))
-                  lst))
+                  (^x
+                   (if (pair? x) 
+                       (let1 a (download (car x))
+                         (prog 'inc 1)
+                         (list (path->page-number (car x))
+                               (novel-subtitle a)
+                               (line->paragraph
+                                ((sxpath "//div/node()") (novel-body a)))))
+                       x))
+                  topic-list))
          (title (novel-title topic))
          (author (novel-author topic))
          (ex (novel-ex topic))
          (series (novel-series topic)))
     (prog 'finish)
-    (call-with-output-zip-archive
-     (fsencode
-      (sanitize #`"[,(novel-author topic)] ,(novel-title topic).epub"))
-     (lambda(archive)
-       (zip-add-entry archive "mimetype" (mimetype)
-                      :compression-level Z_NO_COMPRESSION)
-       (zip-add-entry archive "OPS/title.xhtml" (title-page title author ex)
-                      :compression-level Z_BEST_COMPRESSION)
-       (zip-add-entry archive "OPS/nav.xhtml" (topic-page topic-list)
-                      :compression-level Z_BEST_COMPRESSION)
-       (zip-add-entry archive "OPS/style.css"
-                      (style-sheet (option-vertical) (option-lineheight))
-                      :compression-level Z_BEST_COMPRESSION)
-       (zip-add-entry archive "META-INF/container.xml" (container)
-                      :compression-level Z_BEST_COMPRESSION)
-       (zip-add-entry archive "OPS/content.opf"
-                      (opf topic-list n-code title author ex series)
-                      :compression-level Z_BEST_COMPRESSION)
-       (zip-add-entry archive "OPS/toc.ncx" (ncx topic-list n-code title)
-                      :compression-level Z_BEST_COMPRESSION)
-       (for-each
-        (lambda(x)
-          (let ((pathname (car x))
-                (title (cadr x))
-                (body (caddr x)))
-            (zip-add-entry archive
-                           (rxmatch-case pathname
-                             (#/^\/([^\/]+)\/(.+)\/$/ (#f d f)
-                              (format #f "OPS/~4,,,'0@a.xhtml" f)))
-              (with-output-to-string
-                (^[]
-                  (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-                  (display "<!DOCTYPE html>\n")
-                  (write-tree
-                   (srl:parameterizable
-                    `(*TOP*
-                      (html (@ (xmlns "http://www.w3.org/1999/xhtml")
-                               (xml:lang "ja"))
-                            (head
-                             (title ,title)
-                             (link (@ (rel "stylesheet")
-                                      (type "text/css")
-                                      (href "style.css"))))
-                            (body
-                             (h2 ,title)
-                             ,@(line->paragraph
-                                ((sxpath "//div/node()")body)))))
-                        #f
-                        '(omit-xml-declaration . #t)
-                        '(indent . #f)
-                        ))))
-                  :compression-level Z_BEST_COMPRESSION)))
-              bodies)
-       ))))
+    (values n-code title author ex series bodies)))
 
 (define (main args)
   (guard (e ((condition-has-type? e <error>)
@@ -392,4 +159,8 @@
          (waittime "w|waittime=n" => (cut option-wait-time <>))
          . rest)
       (when (> 2 (length args)) (usage (car args)))
-      (for-each (compose epubize string-downcase) rest))))
+      (for-each (compose (cut epubize <> <> <> <> <> <>
+                              :vertical (option-vertical)
+                              :line-height (option-lineheight))
+                         get-novels string-downcase)
+                rest))))
