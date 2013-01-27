@@ -23,13 +23,15 @@
 (use gauche.parseopt)
 (use srfi-27)
 (use sxml.tools)
-(use binary.pack)
 (use rfc.zlib)
 (use rfc.md5)
 (use srfi-19)
 (use srfi-60)
 (use srfi-13)
 (use text.progress)
+
+(add-load-path "." :relative :after)
+(use zip-archive)
 
 (define option-vertical (make-parameter #f))
 
@@ -46,60 +48,6 @@
 
 (define (sanitize title)
   (regexp-replace-all #/[\/()"?<>|:;\r\n]/ title ""))
-
-(define (current-time/dos-format)
-  (let1 date (current-date)
-    (+ (ash (- (date-year date) 1980) 25)
-       (ash (date-month date) 21)
-       (ash (date-day date) 16)
-       (ash (date-hour date) 11)
-       (ash (date-minute date) 5)
-       (quotient (date-second date) 2))))
-
-(define (pk0304 port name body compressed timestamp checksum flag)
-  (rlet1 lfh-position (port-tell port)
-    (pack "VvvvVVVVvva*"
-      (list #x04034b50 20  0 (if flag 8 0) timestamp checksum
-            (string-size compressed) (string-size body) (string-size name)
-            0 name)
-      :output port)))
-
-(define (pk0102 port name body compressed timestamp position checksum flag)
-  (pack "VvvvvVVVVvvvvvVVa*"
-    (list #x02014b50 20 20 0 (if flag 8 0) timestamp checksum
-          (string-size compressed) (string-size body) (string-size name)
-          0 0 0 0 0 position name)
-        :output port))
-
-(define (pk0506 port num eoc cd)
-  (pack "VvvvvVVv" (list #x06054b50 0 0 num num (- eoc cd) cd 0) :output port))
-
-(define (zip-encode output-filename lst)
-  (receive (names bodies flags) (unzip3 lst)
-    (let ((timestamp (current-time/dos-format))
-          (compressed-bodies
-           (map
-            (^[body flag]
-              (if flag
-                  (deflate-string body :window-bits -15 :compression-level 9)
-                  body))
-                bodies flags))
-          (checksums (map crc32 bodies)))
-      (call-with-output-file output-filename
-        (^p
-         (let ((lfh-pos ;; local file headers
-                (map (^[n b c checksum f]
-                       (rlet1 x (pk0304 p n b c timestamp checksum f)
-                         (display c p)))
-                     names bodies compressed-bodies checksums flags))
-               (cd-position (port-tell p))) ;;central directory structure
-           (for-each
-            (^[n b c pos checksum f]
-              (pk0102 p n b c timestamp pos checksum f))
-            names bodies compressed-bodies lfh-pos checksums flags)
-           (let1 eoc-position (port-tell p) ;;end of central directory record
-             (pk0506 p (length lst) eoc-position cd-position)
-             )))))))
 
 (define (download path)
   (receive (status head body)
@@ -444,32 +392,43 @@ body {
          (ex (novel-ex topic))
          (series (novel-series topic)))
     (prog 'finish)
-    (zip-encode
-     (fsencode (sanitize #`"[,(novel-author topic)] ,(novel-title topic).epub"))
-     `(("mimetype" ,(mimetype) #f)
-       ("OPS/title.xhtml" ,(title-page title author ex) #t)
-       ("OPS/nav.xhtml" ,(topic-page topic-list) #t)
-       ("OPS/style.css" ,(style) #t)
-       ("META-INF/container.xml" ,(container) #t)
-       ("OPS/content.opf" ,(opf topic-list n-code title author ex series) #t)
-       ("OPS/toc.ncx" ,(ncx topic-list n-code title) #t)
-       ,@(map (^x
-               (let ((pathname (car x))
-                     (title (cadr x))
-                     (body (caddr x)))
-                 (list
-                  (rxmatch-case pathname
-                    (#/^\/([^\/]+)\/(.+)\/$/ (#f d f)
-                     (format #f "OPS/~4,,,'0@a.xhtml" f)))
-                  (with-output-to-string
-                    (^[]
-                      (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
-                      (display "<!DOCTYPE html>\n")
-                      (write-tree
-                       (srl:parameterizable
-                        `(*TOP*
-                          (html (@ (xmlns "http://www.w3.org/1999/xhtml")
-                                   (xml:lang "ja"))
+    (call-with-output-zip-archive
+     (fsencode
+      (sanitize #`"[,(novel-author topic)] ,(novel-title topic).epub"))
+     (lambda(archive)
+       (zip-add-entry archive "mimetype" (mimetype)
+                      :compression-level Z_NO_COMPRESSION)
+       (zip-add-entry archive "OPS/title.xhtml" (title-page title author ex)
+                      :compression-level Z_BEST_COMPRESSION)
+       (zip-add-entry archive "OPS/nav.xhtml" (topic-page topic-list)
+                      :compression-level Z_BEST_COMPRESSION)
+       (zip-add-entry archive "OPS/style.css" (style)
+                      :compression-level Z_BEST_COMPRESSION)
+       (zip-add-entry archive "META-INF/container.xml" (container)
+                      :compression-level Z_BEST_COMPRESSION)
+       (zip-add-entry archive "OPS/content.opf"
+                      (opf topic-list n-code title author ex series)
+                      :compression-level Z_BEST_COMPRESSION)
+       (zip-add-entry archive "OPS/toc.ncx" (ncx topic-list n-code title)
+                      :compression-level Z_BEST_COMPRESSION)
+       (for-each
+        (lambda(x)
+          (let ((pathname (car x))
+                (title (cadr x))
+                (body (caddr x)))
+            (zip-add-entry archive
+                           (rxmatch-case pathname
+                             (#/^\/([^\/]+)\/(.+)\/$/ (#f d f)
+                              (format #f "OPS/~4,,,'0@a.xhtml" f)))
+              (with-output-to-string
+                (^[]
+                  (display "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n")
+                  (display "<!DOCTYPE html>\n")
+                  (write-tree
+                   (srl:parameterizable
+                    `(*TOP*
+                      (html (@ (xmlns "http://www.w3.org/1999/xhtml")
+                               (xml:lang "ja"))
                             (head
                              (title ,title)
                              (link (@ (rel "stylesheet")
@@ -482,7 +441,7 @@ body {
                         '(omit-xml-declaration . #t)
                         '(indent . #f)
                         ))))
-                  #t)))
+                  :compression-level Z_BEST_COMPRESSION)))
               bodies)
        ))))
 
