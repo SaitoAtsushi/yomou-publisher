@@ -69,26 +69,28 @@
 (define image-pack
   (let1 query (sxpath "//img")
     (^[x]
-      (rlet1 nodes (query x)
-        (for-each image-replace! nodes)))))
+      (let1 nodes (query x)
+        (for-each image-replace! nodes)
+        x))))
 
 (define (novel-body x)
-  (let* ((m (#/<div class=\"novel_view\" id=\"novel_view\">(.+?)<\/div>/ x))
-         (sx (ssax:xml->sxml (open-input-string
-                              (regexp-replace-all #/ border=0 \/>/
-                                                  (m 0)
-                                                  " />"))
-                             '())))
-    (image-pack sx)
-    sx))
+  (rxmatch-cond
+    ((rxmatch #/<div class=\"novel_view\" id=\"novel_view\">(.+?)<\/div>/ x)
+     (m _)
+     (image-pack
+      (ssax:xml->sxml (open-input-string
+                       (regexp-replace-all #/ border=0 \/>/ m " />"))
+                      '())))
+    (else #f)))
 
 (define (novel-subtitle x)
   (let1 m (#/<div class=\"novel_subtitle\">(?:<div class=\"chapter_title\">[^<]+<\/div>)?([^<]+)<\/div>/ x)
     (m 1)))
 
 (define (novel-ex x)
-  (let1 m (#/<div class=\"novel_ex\">([^<]+)<\/div>/ x)
-    (m 1)))
+  (if-let1 m (#/<div class=\"novel_ex\">([^<]+)<\/div>/ x)
+    (m 1)
+    #f))
 
 (define (novel-author x)
   (let1 m (#/<div class="novel_writername">.+?(?:\uff1a|>)([^<]+)+<\// x)
@@ -111,7 +113,10 @@
 
 (define novel-list
   (let1 query #/<tr><td class=\"chapter\" colspan=\"4\">([^<]+)<\/td><\/tr>|<td class=\"(?:period|long)_subtitle\"><a href=\"([^\"]+)\">([^<]+)<\/a><\/td>/
-    ($ generator->list $ gmap rxmatch-item $ grxmatch query $)))
+    (lambda(x)
+      (if (novel-body x)
+          #f
+          ($ generator->list $ gmap rxmatch-item $ grxmatch query x)))))
 
 (define (usage cmd)
   (print "usage: " (sys-basename cmd) " [option] N-CODE ...\n\n"
@@ -128,27 +133,37 @@
 (define (get-novels n-code)
   (let* ((topic (download #`"/,|n-code|/"))
          (topic-list (novel-list topic))
-         (lst (filter-map (^x (and (pair? x) (car x))) topic-list))
+         (lst (if topic-list
+                  (filter-map (^x (and (pair? x) (car x))) topic-list)
+                  '(dummy)))
          (prog (make-text-progress-bar :header n-code
                                        :header-width 9
                                        :max-value (length lst)))
-         (bodies (map
-                  (^x
-                   (if (pair? x) 
-                       (let1 a (download (car x))
-                         (prog 'inc 1)
-                         (list (path->page-number (car x))
-                               (novel-subtitle a)
-                               (line->paragraph
-                                ((sxpath "//div/node()") (novel-body a)))))
-                       x))
-                  topic-list))
          (title (novel-title topic))
+         (bodies (if topic-list
+                     (map
+                      (^x
+                       (if (pair? x) 
+                           (let1 a (download (car x))
+                             (prog 'inc 1)
+                             (list (path->page-number (car x))
+                                   (novel-subtitle a)
+                                   (line->paragraph
+                                    ((sxpath "//div/node()") (novel-body a)))))
+                           x))
+                      topic-list)
+                     (begin
+                       (prog 'inc 1)
+                       `(("0000"
+                          ,title
+                          ,(line->paragraph
+                            ((sxpath "//div/node()") (novel-body topic))))))))
          (author (novel-author topic))
          (ex (novel-ex topic))
          (series (novel-series topic)))
     (prog 'finish)
-    (values n-code title author ex series bodies)))
+    (apply values
+      (cons* n-code title author ex series bodies (if ex '() '(:no-toc #t))))))
 
 (define (main args)
   (guard (e ((condition-has-type? e <error>)
@@ -161,6 +176,7 @@
       (when (> 2 (length args)) (usage (car args)))
       (for-each (compose (cut epubize <> <> <> <> <> <>
                               :vertical (option-vertical)
-                              :line-height (option-lineheight))
+                              :line-height (option-lineheight)
+                              <...>)
                          get-novels string-downcase)
                 rest))))

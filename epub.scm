@@ -92,8 +92,9 @@ body {
                  (h1 ,title)
                  (h2 "作者")
                  (p ,author)
-                 (h2 "あらすじ")
-                 (p ,ex))))
+                 ,@(if ex
+                      `((h2 "あらすじ") (p ,ex))
+                      '()))))
         #f
         '(omit-xml-declaration . #t)
         '(indent . #f)
@@ -106,7 +107,7 @@ body {
     (let1 m (#/^([[:xdigit:]]{8})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{12})/ (digest-hexify v))
       #`",(m 1)-,(m 2)-,(m 3)-,(m 4)-,(m 5)")))
 
-(define (opf topic id title author ex series :key (vertical #f))
+(define (opf topic id title author ex series :key (vertical #f) (no-toc #f))
   (define play-order (make-counter))
   (define chapter-order (make-counter))
 
@@ -149,7 +150,9 @@ body {
             (dc:language "ja")
             (dc:identifier (@ (id "BookId")) ,#`"urn:uuid:,(uuid4 id)")
             (dc:subject "General Fiction")
-            (dc:description ,ex)
+            ,@(if ex
+                  `((dc:description ,ex))
+                  '())
             (meta (@ (property "dcterms:modified"))
                   ,(date->string (current-date) "~Y-~m-~dT~H:~M:~SZ"))
             ,@(if-let1 series-title series
@@ -176,7 +179,9 @@ body {
                            '((page-progression-direction "rtl"))
                            '()))
                   (itemref (@ (idref "title")))
-                  (itemref (@ (idref "nav")))
+                  ,@(if no-toc
+                        '()
+                        '((itemref (@ (idref "nav")))))
                   ,@spine)
            (guide
             (reference (@ (type "title")
@@ -282,7 +287,7 @@ body {
                  (map format-link x)]))))
 
 (define (epubize novel-id title author ex series bodies
-                 :key (vertical #f) (line-height #f))
+                 :key (vertical #f) (line-height #f) (no-toc #f))
   (call-with-output-zip-archive
    (fsencode
     (sanitize #`"[,|author|] ,|title|.epub"))
@@ -300,7 +305,7 @@ body {
                     :compression-level Z_BEST_COMPRESSION)
      (zip-add-entry archive "OPS/content.opf"
                     (opf bodies novel-id title author ex series
-                         :vertical vertical)
+                         :vertical vertical :no-toc no-toc)
                     :compression-level Z_BEST_COMPRESSION)
      (zip-add-entry archive "OPS/toc.ncx" (ncx bodies novel-id title)
                     :compression-level Z_BEST_COMPRESSION)
