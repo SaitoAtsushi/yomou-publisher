@@ -82,9 +82,11 @@
          (m (#/<font size=\+1>[^<]+<\/font><BR><BR>\n(.+?)<BR>/ x))
          (sx (ssax:xml->sxml (open-input-string
                               (string-append "<div>"
-                                (regexp-replace-all #/<br>/
-                                                    (m 1)
-                                                    "<br />")
+                                (regexp-replace-all #/&(?!amp;|quot;|lt;|gt;)/
+                                  (regexp-replace-all #/<br>/
+                                                      (m 1)
+                                                      "<br />")
+                                  "&amp;")
                                 "</div>"))
                              '())))
    (split-line (query sx))))
