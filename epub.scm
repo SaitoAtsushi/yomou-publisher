@@ -69,7 +69,10 @@ body {
               (version "1.0"))
            (rootfiles
             (rootfile (@ (full-path "OPS/content.opf")
-                         (media-type "application/oebps-package+xml")))))))))))
+                         (media-type "application/oebps-package+xml"))))))
+       #f
+       '(indent . #f)
+       )))))
 
 (define (mimetype)
   "application/epub+zip")
@@ -187,7 +190,10 @@ body {
             (reference (@ (type "title")
                           (title "title")
                           (href "title.xhtml"))))
-           )))))))
+           ))
+        #f
+        '(indent . #f)
+        )))))
 
 (define (make-counter)
   (let1 c 0
@@ -238,7 +244,10 @@ body {
             (docTitle
              (text ,title))
             (navMap ,@nav)
-            )))))))
+            ))
+        #f
+        '(indent . #f)
+        )))))
 
 (define (topic-page topic)
   (with-output-to-string
