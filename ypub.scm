@@ -34,6 +34,8 @@
 
 (define option-wait-time (make-parameter 2))
 
+(define option-no-image (make-parameter #f))
+
 (define (limitter-lineheight x)
   (unless (<= 100 x 300) (error "Lineheight must be between 100 to 300."))
   x)
@@ -66,11 +68,18 @@
          (nsrc ((#/\/([^\/]+)\/$/ src) 1)))
     (sxml:change-attr! x `(src ,(image-download #`"http://5626.mitemin.net/userpageimage/viewimage/icode/,|nsrc|/")))))
 
+(define (image-replace-to-empty! x)
+  (sxml:change-name! x 'span)
+  (sxml:change-attrlist! x '())
+  (sxml:change-content! x '("[画像省略]")))
+
 (define image-pack
   (let1 query (sxpath "//img")
     (^[x]
       (let1 nodes (query x)
-        (for-each image-replace! nodes)
+        (for-each
+         (if (option-no-image) image-replace-to-empty! image-replace!)
+         nodes)
         x))))
 
 (define (novel-body x)
@@ -122,6 +131,7 @@
   (print "usage: " (sys-basename cmd) " [option] N-CODE ...\n\n"
          "options:\n"
          "  -v, --vertical             vertical writing mode\n"
+         "  -n, --noimage              Deny illustration\n"
          "  -l NUM, --lineheight=NUM   Specify percentage of line height (100-300)\n"
          "  -w NUM, --waittime=NUM     Downloading interval (Default is 2s)")
   (exit))
@@ -172,6 +182,7 @@
         ((vertical "v|vertical" => (cut option-vertical #t))
          (lineheight "l|lineheight=n" => (cut option-lineheight <>))
          (waittime "w|waittime=n" => (cut option-wait-time <>))
+         (noimage "n|noimage" => (cut option-no-image #t))
          . rest)
       (when (> 2 (length args)) (usage (car args)))
       (for-each (compose (cut epubize <> <> <> <> <> <>
