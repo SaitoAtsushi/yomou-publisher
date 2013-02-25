@@ -33,13 +33,13 @@ ypub.scm -v -w 0 n0126r
 
 生成される ePub が縦書きモードになります。
 
-== -n, --noimage
+=== -n, --noimage
 
 生成される ePub に画像を含めません。
 
 このオプションが使えるのは ypub.scm のみです。
 
-== -l NUM, --lineheight=NUM
+=== -l NUM, --lineheight=NUM
 
 行間をパーセントで指示します。
 
@@ -47,7 +47,7 @@ ypub.scm -v -w 0 n0126r
 
 指定しなかった場合は 150 になります。
 
-== -w NUM, --waittime=NUM
+=== -w NUM, --waittime=NUM
 
 サイトにアクセスする間隔を秒で指示します。
 
