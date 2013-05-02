@@ -25,7 +25,7 @@
   (ces-convert str (gauche-character-encoding) (*fsencode*)))
 
 (define (sanitize title)
-  (regexp-replace-all #/[\/()"?<>|:;\r\n]/ title ""))
+  (regexp-replace-all #/[\/()"?<>|:;*~\r\n]/ title ""))
 
 (define (style-sheet vertical lineheight)
   #`"
