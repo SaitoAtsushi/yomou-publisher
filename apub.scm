@@ -71,7 +71,7 @@
 
 (define (novel-ex x)
   (define query (sxpath "//td/text()"))
-  (if-let1 m (#/<td class="data" colspan="2">(.*?)<\/td>/ x)
+  (if-let1 m (#/<td [^>]*class="data" colspan="2">(.*?)<\/td>/ x)
     (string-join
      (query
       (ssax:xml->sxml (open-input-string (m 0)) '()))
