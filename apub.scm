@@ -60,15 +60,6 @@
   (define query #/(?:<div><b>前書き<\/b><\/div><div class="body-novel">[^"]+<\/div>.+?)?(<div class="body-novel">.+?<\/div>)/)
   (ssax:xml->sxml (open-input-string ((query x)1)) '()))
 
-(define (novel-body1 x)
-  (define query #/(?:<div><b>前書き<\/b><\/div><div class="body-novel">[^"]+<\/div>.+?)?(<div class="body-novel">.+?<\/div>)/)
-  ((query x)1))
-
-(define (novel-subtitle x)
-  (if-let1 m (#/<h2>(.+?)<\/h2>/ x)
-    (m 1)
-    (error "miss match subtitle.")))
-
 (define (novel-ex x)
   (define query (sxpath "//td/text()"))
   (if-let1 m (#/<td [^>]*class="data" colspan="2">(.*?)<\/td>/ x)
