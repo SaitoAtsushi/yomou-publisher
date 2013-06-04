@@ -52,7 +52,7 @@
 
 (define (download path)
   (receive (status head body)
-      (http-get "syosetu.org" path)
+      (http-get "novel.syosetu.org" path)
     (unless (string=? "200" status) (error "http error"))
     (sys-sleep (option-wait-time))
     (regexp-replace-all #/<rb>(.*?)<\/rb>/ body (cut <> 1))))
@@ -100,7 +100,7 @@
     (split-br (m 1))))
 
 (define (novel-author x)
-  (let1 m (#/<a href=\.\.\/\.\.\/\?mode=user&uid=\d+>([^<]+)<\/a>/ x)
+  (let1 m (#/<a href=http:\/\/syosetu.org\/\?mode=user&uid=\d+>([^<]+)<\/a>/ x)
     (m 1)))
 
 (define (novel-title x)
@@ -128,7 +128,7 @@
     (format #f "~4,,,'0@a" (m 1))))
 
 (define (get-novel novel-id)
-  (let* ((topic (download #`"/Novel/,|novel-id|/"))
+  (let* ((topic (download #`"/,|novel-id|/"))
          (topic-list (novel-list topic))
          (lst (filter-map (^x (and (pair? x) (car x))) topic-list))
          (prog (make-text-progress-bar :header novel-id
@@ -137,7 +137,7 @@
          (bodies (map
                   (^x
                    (if (pair? x) 
-                       (let1 a (download #`"/Novel/,|novel-id|/,(car x)")
+                       (let1 a (download #`"/,|novel-id|/,(car x)")
                          (prog 'inc 1)
                          (list (path->page-number (car x))
                                (novel-subtitle a)
