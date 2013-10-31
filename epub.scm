@@ -237,7 +237,7 @@ body {
                   (xml:lang "en")
                   (version "2005-1"))
             (head
-             (meta (@ (name "dtb:uid") (content ,id)))
+             (meta (@ (name "dtb:uid") (content ,#`"urn:uuid:,(uuid4 id)")))
              (meta (@ (name "dtb:depth") (content "1")))
              (meta (@ (name "dtb:totalPageCount") (content "0")))
              (meta (@ (name "dtb:maxPageNumber") (content "0"))))
