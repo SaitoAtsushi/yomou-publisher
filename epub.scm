@@ -223,7 +223,9 @@ body {
                            ,@(map navPoint a))
                 (loop b)))]
             [(pair? (car x))
-             (map navPoint x)])))
+             (cons
+              (navPoint (car x))
+              (loop (cdr x)))])))
 
   (define nav (nav-grouping topic))
   
@@ -293,7 +295,9 @@ body {
                          (ol ,@(map format-link a)))
                     (loop b)))]
                 [(pair? (car x))
-                 (map format-link x)]))))
+                 (cons
+                  (format-link (car x))
+                  (loop (cdr x)))]))))
 
 (define (epubize novel-id title author ex series bodies
                  :key (vertical #f) (line-height #f) (no-toc #f))
