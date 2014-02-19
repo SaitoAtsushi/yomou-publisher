@@ -84,7 +84,7 @@
 
 (define (novel-body x)
   (rxmatch-cond
-    ((rxmatch #/<div class=\"novel_view\" id=\"novel_view\">(.+?)<\/div>/ x)
+    ((rxmatch #/<div id="novel_honbun" class="novel_view">(.+?)<\/div>/ x)
      (m _)
      (image-pack
       (ssax:xml->sxml (open-input-string
@@ -93,26 +93,29 @@
     (else #f)))
 
 (define (novel-subtitle x)
-  (let1 m (#/<div class=\"novel_subtitle\">(?:<div class=\"chapter_title\">[^<]+<\/div>)?([^<]+)<\/div>/ x)
-    (m 1)))
+  (if-let1 m (#/<p class="novel_subtitle">([^<]+)<\/p>/ x)
+    (m 1)
+    (error "subtitle.")))
 
 (define (novel-ex x)
-  (if-let1 m (#/<div class=\"novel_ex\">([^<]+)<\/div>/ x)
-    (m 1)
+  (if-let1 m (#/<div id="novel_ex">(.+?)<\/div>/ x)
+    (regexp-replace-all #/<br \/>/ (m 1) "\n")
     #f))
 
 (define (novel-author x)
-  (let1 m (#/<div class="novel_writername">.+?(?:\uff1a|>)([^<]+)+<\// x)
-    (m 1)))
+  (if-let1 m (#/<div class="novel_writername">.+?(?:\uff1a|>)([^<]+)+<\// x)
+    (m 1)
+    (error "author")))
 
 (define (novel-title x)
-  (let1 m
-      (#/<div class=\"novel_title\">\r\n(?:<div .+?<\/a><\/div>\r\n)?([^<]+)\r\n<\/div>/ x)
-    (m 1)))
+  (if-let1 m
+      (#/<p class=\"novel_title\">([^<]+)<\/p>/ x)
+    (m 1)
+    (error "title")))
 
 (define (novel-series x)
   (if-let1 m
-      (#/<div class=\"series\"><a href=\"\/[^\/]+\/\">([^<]+)<\/a><\/div>/ x)
+      (#/<p class=\"series_title\"><a href=\"\/[^\/]+\/\">([^<]+)<\/a><\/p>/ x)
     (m 1)
     #f))
 
@@ -121,7 +124,7 @@
         (else (cons (x 2) (x 3)))))
 
 (define novel-list
-  (let1 query #/<tr><td class=\"chapter\" colspan=\"4\">([^<]+)<\/td><\/tr>|<td class=\"(?:period|long)_subtitle\"><a href=\"([^\"]+)\">([^<]+)<\/a><\/td>/
+  (let1 query #/<div class="chapter_title">([^<]+)<\/div>|<dd class="subtitle"><a href="([^"]+)">([^<]+)<\/a><\/dd>/
     (lambda(x)
       (if (novel-body x)
           #f
