@@ -46,7 +46,7 @@
     (regexp-replace-all #/<br>/
       (regexp-replace-all #/&nbsp;/
         (regexp-replace-all #/<\/?(?:RP|RT|RUBY)>/
-          (regexp-replace-all #/<rb>(.+?)<\/rb>/i body (cut <> 1))
+          (regexp-replace-all #/<\/?rb>/i body "")
           (lambda(x) (string-downcase (x 0))))
         " ")
       "<br />")))
