@@ -14,15 +14,9 @@
           mimetype
           style-sheet
           line->paragraph
-          epubize
-          *fsencode*))
+          epubize))
 
 (select-module epub)
-
-(define *fsencode* (make-parameter 'utf8))
-
-(define (fsencode str)
-  (ces-convert str (gauche-character-encoding) (*fsencode*)))
 
 (define (sanitize title)
   (regexp-replace-all #/[\/()"?<>|:;*~\r\n]/ title ""))
@@ -302,8 +296,7 @@ body {
 (define (epubize novel-id title author ex series bodies
                  :key (vertical #f) (line-height #f) (no-toc #f))
   (call-with-output-zip-archive
-   (fsencode
-    (sanitize #`"[,|author|] ,|title|.epub"))
+   (sanitize #`"[,|author|] ,|title|.epub")
    (lambda(archive)
      (zip-add-entry archive "mimetype" (mimetype)
                     :compression-level Z_NO_COMPRESSION)

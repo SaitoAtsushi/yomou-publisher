@@ -25,11 +25,6 @@
 (add-load-path "." :relative)
 (use epub)
 
-;; file-system encoding
-(*fsencode*
- (cond-expand (gauche.os.windows 'Shift_JIS)
-              (else 'utf8)))
-
 (define option-vertical (make-parameter #f))
 
 (define option-wait-time (make-parameter 2))
