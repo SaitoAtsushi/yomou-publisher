@@ -21,6 +21,7 @@
 (use srfi-60)
 (use srfi-13)
 (use text.progress)
+(use www.cgi)
 
 (add-load-path "." :relative)
 (use epub)
@@ -30,6 +31,8 @@
 (define option-wait-time (make-parameter 2))
 
 (define option-no-image (make-parameter #f))
+
+(define image-accum (make-parameter '()))
 
 (define (limitter-lineheight x)
   (unless (<= 100 x 300) (error "Lineheight must be between 100 to 300."))
@@ -42,26 +45,32 @@
       (http-get "ncode.syosetu.com" path)
     (unless (string=? "200" status) (error "http error"))
     (sys-sleep (option-wait-time))
-    (regexp-replace-all #/<rb>(.+?)<\/rb>/ body (cut <> 1))))
+    (regexp-replace-all #/border="0"/
+      (regexp-replace-all #/<rb>(.+?)<\/rb>/ body (cut <> 1))
+      "")))
 
 (define (path-split url)
   (let1 m (#/^http:\/\/([^\/]+)(\/.+)$/ url)
     (values (m 1) (m 2))))
 
 (define (image-download url)
-  (receive (domain path)
-      (path-split url)
-    (receive (status head body)
-        (http-get domain path)
-      (string-append "data:"
-                     (cadr (assoc "content-type" head))
-                     ";base64,"
-                     (base64-encode-string body)))))
+  (rlet1 name ((#/\/([^\/]+)$/ url) 1)
+    (unless (assoc-ref (image-accum) name #f)
+      (receive (domain path)
+          (path-split url)
+        (receive (status head body)
+            (http-get domain path)
+          (push! (image-accum) (cons name body)))))))
 
 (define (image-replace! x)
   (let* ((src (sxml:attr x 'src))
-         (nsrc ((#/\/([^\/]+)\/$/ src) 1)))
-    (sxml:change-attr! x `(src ,(image-download #`"http://5626.mitemin.net/userpageimage/viewimage/icode/,|nsrc|/")))))
+         (nsrc ((#/\/([^\/]+)\/$/ src) 1))
+         (url (receive (status head body)
+                  (http-get "5626.mitemin.net"
+                            #`"/userpageimage/viewimage/icode/,|nsrc|"
+                            :redirect-handler #f)
+                (cgi-get-parameter "location" head))))
+    (sxml:change-attr! x `(src ,#`",(image-download url)"))))
 
 (define (image-replace-to-empty! x)
   (sxml:change-name! x 'span)
@@ -170,8 +179,7 @@
          (ex (novel-ex topic))
          (series (novel-series topic)))
     (prog 'finish)
-    (apply values
-      (cons* n-code title author ex series bodies (if ex '() '(:no-toc #t))))))
+    (cons* n-code title author ex series bodies (if ex '() '(:no-toc #t)))))
 
 (define (main args)
   (guard (e ((condition-has-type? e <error>)
@@ -183,9 +191,14 @@
          (noimage "n|noimage" => (cut option-no-image #t))
          . rest)
       (when (> 2 (length args)) (usage (car args)))
-      (for-each (compose (cut epubize <> <> <> <> <> <>
-                              :vertical (option-vertical)
-                              :line-height (option-lineheight)
-                              <...>)
-                         get-novels string-downcase)
+      (for-each (lambda(ncode)
+                  (parameterize ((image-accum '()))
+                    (let1 novel-data ($ get-novels $ string-downcase ncode)
+                      (apply
+                       (cut epubize <> <> <> <> <> <>
+                            :vertical (option-vertical)
+                            :line-height (option-lineheight)
+                            :images (image-accum)
+                            <...>)
+                       novel-data))))
                 rest))))

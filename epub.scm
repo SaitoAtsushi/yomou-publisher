@@ -35,6 +35,10 @@ p {
  margin: 0;
 ,(if lineheight #`\"line-height: ,|lineheight|%\" \"\")
 }
+img {
+ max-width: 100%;
+ max-height: 100%;
+}
 body {
  margin: 0;
  padding: 0;
@@ -104,7 +108,8 @@ body {
     (let1 m (#/^([[:xdigit:]]{8})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{12})/ (digest-hexify v))
       #`",(m 1)-,(m 2)-,(m 3)-,(m 4)-,(m 5)")))
 
-(define (opf topic id title author ex series :key (vertical #f) (no-toc #f))
+(define (opf topic id title author ex series
+             :key (vertical #f) (no-toc #f) (images '()))
   (define play-order (make-counter))
   (define chapter-order (make-counter))
 
@@ -117,6 +122,18 @@ body {
                          (media-type "application/xhtml+xml")))
                #f))
        topic)))
+
+  (define image-manifest
+    (map (lambda(item id)
+           (let1 file (car item)
+             `(item (@ (id ,#`"image_,|id|")
+                       (href ,file)
+                       (media-type
+                        ,(rxmatch-cond
+                           ((rxmatch #/.gif$/ file) (#f) "image/gif")
+                           ((rxmatch #/.jpg$/ file) (#f) "image/jpeg")
+                           ((rxmatch #/.png$/ file) (#f) "image/png")))))))
+         images (iota (length images))))
 
   (define spine
     (let1 counter (make-counter)
@@ -170,6 +187,7 @@ body {
             (item (@ (id "style")
                      (href "style.css")
                      (media-type "text/css")))
+            ,@image-manifest
             ,@manifest)
            (spine (@ (toc "toc")
                      ,@(if vertical
@@ -294,7 +312,7 @@ body {
                   (loop (cdr x)))]))))
 
 (define (epubize novel-id title author ex series bodies
-                 :key (vertical #f) (line-height #f) (no-toc #f))
+                 :key (vertical #f) (line-height #f) (no-toc #f) (images '()))
   (call-with-output-zip-archive
    (sanitize #`"[,|author|] ,|title|.epub")
    (lambda(archive)
@@ -311,10 +329,14 @@ body {
                     :compression-level Z_BEST_COMPRESSION)
      (zip-add-entry archive "OPS/content.opf"
                     (opf bodies novel-id title author ex series
-                         :vertical vertical :no-toc no-toc)
+                         :vertical vertical :no-toc no-toc :images images)
                     :compression-level Z_BEST_COMPRESSION)
      (zip-add-entry archive "OPS/toc.ncx" (ncx bodies novel-id title)
                     :compression-level Z_BEST_COMPRESSION)
+     (for-each (lambda(item)
+                 (zip-add-entry archive #`"OPS/,(car item)" (cdr item)
+                                :compression-level Z_BEST_COMPRESSION))
+               images)
      (for-each
       (lambda(x)
         (let ((pathname (car x))
