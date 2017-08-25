@@ -128,7 +128,7 @@
         (else (cons (x 2) (x 3)))))
 
 (define novel-list
-  (let1 query #/<div class="chapter_title">([^<]+)<\/div>|<dd class="subtitle"><a href="([^"]+)">([^<]+)<\/a><\/dd>/
+  (let1 query #/<div class="chapter_title">([^<]+)<\/div>|<dd class="subtitle">\n<a href="([^"]+)">([^<]+)<\/a>\n<\/dd>/
     (lambda(x)
       (if (novel-body x)
           #f
