@@ -15,6 +15,7 @@
 (use util.queue)
 (use gauche.parameter)
 (use gauche.parseopt)
+(use gauche.sequence)
 (use srfi-27)
 (use sxml.tools)
 (use srfi-19)
@@ -22,32 +23,68 @@
 (use srfi-13)
 (use text.progress)
 (use www.cgi)
-
-(add-load-path "." :relative)
+(use file.util)
+(use rfc.json)
+(use rfc.md5)
 (use epub)
 
 (define option-vertical (make-parameter #f))
-
-(define option-wait-time (make-parameter 2))
 
 (define option-no-image (make-parameter #f))
 
 (define image-accum (make-parameter '()))
 
-(define (limitter-lineheight x)
-  (unless (<= 100 x 300) (error "Lineheight must be between 100 to 300."))
-  x)
+(define (style-sheet)
+  #"
+~(if (option-vertical) \"html {
+ -epub-writing-mode: vertical-rl;
+}\" \"\")
+ol {
+ list-style-type: none;
+ padding: 0;
+ margin: 0;
+}
+p {
+ margin: 0;
+}
+body {
+ margin: 0;
+ padding: 0;
+}")
 
-(define option-lineheight (make-parameter 150 limitter-lineheight))
+(define-class <novel> ()
+  ((title :init-keyword :title)
+   (ncode :init-keyword :ncode)
+   (author :init-keyword :author)
+   (description :init-keyword :description)
+   (number-of-episodes :init-keyword :noe)
+   (update :init-keyword :update)
+   (episodes :init-value #f)
+   (images :inive-value '())))
 
-(define (download path)
+(define-class <episode> ()
+  ((title :init-keyword :title)
+   (chapter :init-keyword :chapter :init-value #f)
+   (body :init-keyword :body)))
+
+(define (api ncode)
   (receive (status head body)
-      (http-get "ncode.syosetu.com" path)
-    (unless (string=? "200" status) (error "http error"))
-    (sys-sleep (option-wait-time))
-    (regexp-replace-all #/border="0"/
-      (regexp-replace-all #/<rb>(.+?)<\/rb>/ body (cut <> 1))
-      "")))
+      (http-get "api.syosetu.com" `("/novelapi/api/"
+                                    (out "json")
+                                    (ncode ,ncode)
+                                    (of "t-n-w-s-ga-nu")))
+    (unless (string=? "200" status)
+      (error "http error"))
+    (let1 j (vector-ref (parse-json-string body) 1)
+      (make <novel>
+        :ncode ncode
+        :title (assoc-ref j "title")
+        :author (assoc-ref j "writer")
+        :description (assoc-ref j "story")
+        :noe (assoc-ref j "general_all_no")
+        :update (string->date (assoc-ref j "novelupdated_at")
+                              "~Y-~m-~d ~H:~M:~S"))
+      )))
 
 (define (path-split url)
   (let1 m (#/^http:\/\/([^\/]+)(\/.+)$/ url)
@@ -67,10 +104,10 @@
          (nsrc ((#/\/([^\/]+)\/$/ src) 1))
          (url (receive (status head body)
                   (http-get "5626.mitemin.net"
-                            #`"/userpageimage/viewimage/icode/,|nsrc|"
+                            #"/userpageimage/viewimage/icode/~|nsrc|"
                             :redirect-handler #f)
                 (cgi-get-parameter "location" head))))
-    (sxml:change-attr! x `(src ,#`",(image-download url)"))))
+    (sxml:change-attr! x `(src ,#"~(image-download url)"))))
 
 (define (image-replace-to-empty! x)
   (sxml:change-name! x 'span)
@@ -86,119 +123,113 @@
          nodes)
         x))))
 
-(define (novel-body x)
+(define episode-html-collect
+  (compose
+   (cut regexp-replace-all #/<a href="\/\/\d+?.mitemin.net\/i\d+?\/" target="_blank">(.+?)<\/a>/ <> "\\1")
+   (cut regexp-replace-all #/ border=0 \/>/ <> " />")))
+
+
+(define (episode-body x)
   (rxmatch-cond
-    ((rxmatch #/<div id="novel_honbun" class="novel_view">(.+?)<\/div>/ x)
-     (m _)
+   ((rxmatch #/<div id="novel_honbun" class="novel_view">(.+?)<\/div>/ x)
+    (m _)
+    ((sxpath "//div/node()")
      (image-pack
       (ssax:xml->sxml (open-input-string
-                       (regexp-replace-all #/ border=0 \/>/ m " />"))
-                      '())))
-    (else #f)))
+                       (episode-html-collect m))
+                      '()))))
+   (else #f)))
 
-(define (novel-subtitle x)
-  (if-let1 m (#/<p class="novel_subtitle">([^<]+)<\/p>/ x)
+(define (episode-title x)
+  (if-let1 m (#/<p class="novel_subtitle">(.+?)<\/p>/ x)
     (m 1)
-    (error "subtitle.")))
+    (error "episode-title")))
 
-(define (novel-ex x)
-  (if-let1 m (#/<div id="novel_ex">(.+?)<\/div>/ x)
-    (regexp-replace-all #/<br \/>/ (m 1) "\n")
-    #f))
-
-(define (novel-author x)
-  (if-let1 m (#/<div class="novel_writername">.+?(?:\uff1a|>)([^<]+)+<\// x)
-    (m 1)
-    (error "author")))
-
-(define (novel-title x)
-  (if-let1 m
-      (#/<p class=\"novel_title\">([^<]+)<\/p>/ x)
-    (m 1)
-    (error "title")))
-
-(define (novel-series x)
-  (if-let1 m
-      (#/<p class=\"series_title\"><a href=\"\/[^\/]+\/\">([^<]+)<\/a><\/p>/ x)
+(define (episode-chapter x)
+  (if-let1 m (#/<p class="chapter_title">(.+?)<\/p>/ x)
     (m 1)
     #f))
 
-(define (rxmatch-item x)
-  (cond ((x 1) => values)
-        (else (cons (x 2) (x 3)))))
+(define-method get-episode ((novel <novel>) (episode-number <integer>))
+  (receive (status head body)
+      (http-get "ncode.syosetu.com" #"/~(~ novel 'ncode)/~|episode-number|/")
+    (unless (string=? "200" status) (error "http error"))
+    (let1 src (regexp-replace-all #/border="0"/ (regexp-replace-all #/<\/?rb>/ body "") "")
+      (make <episode>
+        :title (episode-title src)
+        :chapter (episode-chapter src)
+        :body (episode-body src))
+      )))
 
-(define novel-list
-  (let1 query #/<div class="chapter_title">([^<]+)<\/div>|<dd class="subtitle">\n<a href="([^"]+)">([^<]+)<\/a>\n<\/dd>/
-    (lambda(x)
-      (if (novel-body x)
-          #f
-          ($ generator->list $ gmap rxmatch-item $ grxmatch query x)))))
+(define (get-novel ncode)
+  (parameterize ((image-accum '()))
+    (let* ((info (api ncode))
+           (num (~ info 'number-of-episodes))
+           (episodes
+            (do ((i 1 (+ i 1))
+                 (result '() (cons (get-episode info i) result)))
+                ((> i num) (reverse! result)))))
+      (set! (~ info 'episodes) episodes)
+      (set! (~ info 'images) (image-accum))
+      info)))
 
 (define (usage cmd)
   (print "usage: " (sys-basename cmd) " [option] N-CODE ...\n\n"
          "options:\n"
          "  -v, --vertical             vertical writing mode\n"
          "  -n, --noimage              Deny illustration\n"
-         "  -l NUM, --lineheight=NUM   Specify percentage of line height (100-300)\n"
          "  -w NUM, --waittime=NUM     Downloading interval (Default is 2s)")
   (exit))
 
-(define (path->page-number x)
-  (let1 m (#/^\/(?:[^\/]+)\/(.+)\/$/ x)
-    (format #f "~4,,,'0@a" (m 1))))
-  
-(define (get-novels n-code)
-  (let* ((topic (download #`"/,|n-code|/"))
-         (topic-list (novel-list topic))
-         (lst (if topic-list
-                  (filter-map (^x (and (pair? x) (car x))) topic-list)
-                  '(dummy)))
-         (prog (make-text-progress-bar :header n-code
-                                       :header-width 9
-                                       :max-value (length lst)))
-         (title (novel-title topic))
-         (bodies (if topic-list
-                     (map
-                      (^x
-                       (if (pair? x) 
-                           (let1 a (download (car x))
-                             (prog 'inc 1)
-                             (list (path->page-number (car x))
-                                   (novel-subtitle a)
-                                   (line->paragraph
-                                    ((sxpath "//div/node()") (novel-body a)))))
-                           x))
-                      topic-list)
-                     (begin
-                       (prog 'inc 1)
-                       `(("0000"
-                          ,title
-                          ,(line->paragraph
-                            ((sxpath "//div/node()") (novel-body topic))))))))
-         (author (novel-author topic))
-         (ex (novel-ex topic))
-         (series (novel-series topic)))
-    (prog 'finish)
-    (cons* n-code title author ex series bodies (if ex '() '(:no-toc #t)))))
+(define (uuid4 src)
+  (let1 v (digest-string <md5> src)
+    (string-byte-set! v 6 (logior (logand (string-byte-ref v 6) #x0f) #x40))
+    (string-byte-set! v 8 (logior (logand (string-byte-ref v 8) #x3f) #x80))
+    (let1 m (#/^([[:xdigit:]]{8})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{12})/ (digest-hexify v))
+      #`",(m 1)-,(m 2)-,(m 3)-,(m 4)-,(m 5)")))
 
 (define (main args)
-  (guard (e ((condition-has-type? e <error>)
-             (display (~ e 'message))))
-    (let-args (cdr args)
-        ((vertical "v|vertical" => (cut option-vertical #t))
-         (lineheight "l|lineheight=n" => (cut option-lineheight <>))
-         (waittime "w|waittime=n" => (cut option-wait-time <>))
-         (noimage "n|noimage" => (cut option-no-image #t))
-         . rest)
-      (when (> 2 (length args)) (usage (car args)))
-      (for-each (lambda(ncode)
-                  (parameterize ((image-accum '()))
-                    (let1 novel-data ($ get-novels $ string-downcase ncode)
-                      (apply
-                       (cut epubize <> <> <> <> <> <>
-                            :vertical (option-vertical)
-                            :line-height (option-lineheight)
-                            :images (image-accum)
-                            <...>)
-                       novel-data))))
-                rest))))
+  (let-args (cdr args)
+      ((vertical "v|vertical" => (cut option-vertical #t))
+       (noimage "n|noimage" => (cut option-no-image #t))
+       . rest)
+    (when (> 2 (length args)) (usage (car args)))
+    (for-each (lambda(ncode)
+                (let* ((novel (get-novel ncode))
+                       (book (book-open
+                              #"[~(~ novel 'author)] ~(~ novel 'title).epub"
+                              (uuid4 ncode)
+                              (~ novel 'title)
+                              (~ novel 'author)
+                              (~ novel 'description)
+                              (if (option-vertical) "rtl" "default"))))
+                  (add-style book "style.css" (style-sheet))
+                  (let1 prev #f
+                    (for-each-with-index
+                     (lambda(num episode)
+                       (unless (equal? prev (~ episode 'chapter))
+                         (if (equal? prev #f)
+                             (chapter-begin book (~ episode 'chapter))
+                             (begin (chapter-end book)
+                                    (chapter-begin book (~ episode 'chapter)))))
+                       (add-html book
+                                 (format #f "~4,'0d.xhtml" num)
+                                 (~ episode 'title)
+                                 `(html (|@|
+                                         (xmlns "http://www.w3.org/1999/xhtml")
+                                         (xml:lang "ja"))
+                                        (head (title ,(~ episode 'title))
+                                              (link (|@|
+                                                     (rel "stylesheet")
+                                                     (type "text/css")
+                                                     (href "style.css"))))
+                                        (body ,@(~ episode 'body))))
+                       (set! prev (~ episode 'chapter)))
+                     (~ novel 'episodes))
+                    (when prev (chapter-end book))
+                    )
+                  (for-each (lambda(image)
+                              (add-image book (car image) (cdr image)))
+                            (~ novel 'images))
+                  (book-close book)))
+              rest)))
