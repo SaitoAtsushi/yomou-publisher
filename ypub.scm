@@ -56,6 +56,8 @@ body {
   ((title :init-keyword :title)
    (ncode :init-keyword :ncode)
    (author :init-keyword :author)
+   (author-id :init-keyword :author-id :init-value #f)
+   (author-furigana :init-keyword :author-furigana :init-value #f)
    (description :init-keyword :description)
    (number-of-episodes :init-keyword :noe)
    (update :init-keyword :update)
@@ -67,12 +69,16 @@ body {
    (chapter :init-keyword :chapter :init-value #f)
    (body :init-keyword :body)))
 
+(define-class <author> ()
+  ((name :init-keyword :name)
+   (furigana :init-keyword :furigana)))
+
 (define (api ncode)
   (receive (status head body)
       (http-get "api.syosetu.com" `("/novelapi/api/"
                                     (out "json")
                                     (ncode ,ncode)
-                                    (of "t-n-w-s-ga-nu")))
+                                    (of "t-n-u-w-s-ga-nu")))
     (unless (string=? "200" status)
       (error "http error"))
     (let1 j (vector-ref (parse-json-string body) 1)
@@ -80,10 +86,25 @@ body {
         :ncode ncode
         :title (assoc-ref j "title")
         :author (assoc-ref j "writer")
+        :author-id (assoc-ref j "userid")
         :description (assoc-ref j "story")
         :noe (assoc-ref j "general_all_no")
         :update (string->date (assoc-ref j "novelupdated_at")
                               "~Y-~m-~d ~H:~M:~S"))
+      )))
+
+(define (author-api user-id)
+  (receive (status head body)
+      (http-get "api.syosetu.com" `("/userapi/api/"
+                                    (out "json")
+                                    (userid ,user-id)
+                                    (of "n-y")))
+    (unless (string=? "200" status)
+      (error "http error"))
+    (let1 j (vector-ref (parse-json-string body) 1)
+      (make <author>
+        :name (assoc-ref j "name")
+        :furigana (assoc-ref j "yomikata"))
       )))
 
 (define (path-split url)
@@ -164,6 +185,7 @@ body {
 (define (get-novel ncode)
   (parameterize ((image-accum '()))
     (let* ((info (api ncode))
+           (author-info (author-api (~ info 'author-id)))
            (num (~ info 'number-of-episodes))
            (episodes
             (do ((i 1 (+ i 1))
@@ -171,6 +193,8 @@ body {
                 ((> i num) (reverse! result)))))
       (set! (~ info 'episodes) episodes)
       (set! (~ info 'images) (image-accum))
+      (set! (~ info 'author) (~ author-info 'name))
+      (set! (~ info 'author-furigana) (~ author-info 'furigana))
       info)))
 
 (define (usage cmd)
@@ -188,6 +212,9 @@ body {
     (let1 m (#/^([[:xdigit:]]{8})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{4})([[:xdigit:]]{12})/ (digest-hexify v))
       #`",(m 1)-,(m 2)-,(m 3)-,(m 4)-,(m 5)")))
 
+(define (sanitize title)
+  (regexp-replace-all #/[\/()"?<>|:;*~\r\n]/ title "_"))
+
 (define (main args)
   (let-args (cdr args)
       ((vertical "v|vertical" => (cut option-vertical #t))
@@ -197,12 +224,14 @@ body {
     (for-each (lambda(ncode)
                 (let* ((novel (get-novel ncode))
                        (book (book-open
-                              #"[~(~ novel 'author)] ~(~ novel 'title).epub"
+                              #"[~(sanitize (~ novel 'author))] ~(sanitize (~ novel 'title)).epub"
                               (uuid4 ncode)
                               (~ novel 'title)
                               (~ novel 'author)
                               (~ novel 'description)
-                              (if (option-vertical) "rtl" "default"))))
+                              (if (option-vertical) "rtl" "default")
+                              :author-furigana (~ novel 'author-furigana)
+                              :source #"https://ncode.syosetu.com/~|ncode|/")))
                   (add-style book "style.css" (style-sheet))
                   (let1 prev #f
                     (for-each-with-index
