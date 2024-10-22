@@ -108,7 +108,7 @@ body {
       )))
 
 (define (path-split url)
-  (let1 m (#/^http:\/\/([^\/]+)(\/.+)$/ url)
+  (let1 m (#/^https?:\/\/([^\/]+)(\/.+)$/ url)
     (values (m 1) (m 2))))
 
 (define (image-download url)
@@ -152,7 +152,7 @@ body {
 
 (define (episode-body x)
   (rxmatch-cond
-   ((rxmatch #/<div id="novel_honbun" class="novel_view">(.+?)<\/div>/ x)
+   ((rxmatch #/<div class="js-novel-text p-novel__text">(.+?)<\/div>/ x)
     (m _)
     ((sxpath "//div/node()")
      (image-pack
@@ -162,7 +162,7 @@ body {
    (else #f)))
 
 (define (episode-title x)
-  (if-let1 m (#/<p class="novel_subtitle">(.+?)<\/p>/ x)
+  (if-let1 m (#/<h1 class="p-novel__title p-novel__title--rensai">(.+?)<\/h1>/ x)
     (m 1)
     (error "episode-title")))
 
@@ -252,7 +252,9 @@ body {
                                                      (rel "stylesheet")
                                                      (type "text/css")
                                                      (href "style.css"))))
-                                        (body ,@(~ episode 'body))))
+                                        (body
+                                         (h1 ,(~ episode 'title))
+                                         ,@(~ episode 'body))))
                        (set! prev (~ episode 'chapter)))
                      (~ novel 'episodes))
                     (when prev (chapter-end book))
