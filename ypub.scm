@@ -167,7 +167,7 @@ body {
     (error "episode-title")))
 
 (define (episode-chapter x)
-  (if-let1 m (#/<p class="chapter_title">(.+?)<\/p>/ x)
+  (if-let1 m (#/<span>([^<]+?)<\/span>\n<\/div><!--\/\.c-announce-->/ x)
     (m 1)
     #f))
 
